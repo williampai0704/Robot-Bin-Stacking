@@ -1,0 +1,16 @@
+name: hw4
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - trimesh=4.0.4
+  - numpy=1.23.5
+  - pybullet=3.21
+  - py-opencv=4.5.5
+  - scipy=1.8.0
+  - pandas=1.4.1
+  - matplotlib=3.5.1
+  - tqdm=4.63
+  - scikit-image=0.19.2
+  - imgaug=0.4.0
+  - pyquaternion = 0.9.9
