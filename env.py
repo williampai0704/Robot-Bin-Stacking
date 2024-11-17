@@ -3,11 +3,56 @@ import pybullet_data
 import numpy as np
 import time
 
-from assets.ycb_objects import getURDFPath
-from utils import camera
+from typing import Tuple, List, Dict
+
+
 from utils.control import get_movej_trajectory
 
-class UR5PickEnviornment:
+
+class StackingEfficiencyCalculator:
+    @staticmethod
+    def get_box_corners(position: List[float], orientation: List[float], 
+                       half_extents: List[float]) -> np.ndarray:
+        """
+        Get the 8 corners of a box given its position, orientation, and dimensions.
+        
+        Args:
+            position: [x, y, z] center position
+            orientation: quaternion [x, y, z, w]
+            half_extents: [x, y, z] half-lengths in each dimension
+        """
+        # Create corner points in local coordinates
+        corners = np.array([
+            [ 1,  1,  1], [ 1,  1, -1], [ 1, -1,  1], [ 1, -1, -1],
+            [-1,  1,  1], [-1,  1, -1], [-1, -1,  1], [-1, -1, -1]
+        ]) * np.array(half_extents)  # Now using different scales for each dimension
+        
+        # Convert quaternion to rotation matrix
+        rot_matrix = np.array(p.getMatrixFromQuaternion(orientation)).reshape(3, 3)
+        
+        # Rotate and translate corners
+        transformed_corners = corners @ rot_matrix.T + position
+        return transformed_corners
+
+    @staticmethod
+    def calculate_bounding_box_volume(points: np.ndarray) -> float:
+        """Calculate volume of axis-aligned bounding box containing all points."""
+        min_coords = np.min(points, axis=0)
+        max_coords = np.max(points, axis=0)
+        dimensions = max_coords - min_coords
+        return np.prod(dimensions)
+
+    @staticmethod
+    def calculate_total_box_volume(boxes: Dict[int, tuple]) -> float:
+        """Calculate total volume of all boxes with different dimensions."""
+        total_volume = 0
+        for box_info in boxes.values():
+            dimensions = box_info
+            volume = dimensions[0] * dimensions[1] * dimensions[2]
+            total_volume += volume
+        return total_volume
+
+class BinStackEnviornment:
     def __init__(self, gui=True):
         
         # 0 load environment
@@ -36,162 +81,217 @@ class UR5PickEnviornment:
         # joint position threshold in radians (i.e. move until joint difference < epsilon)
         self._joint_epsilon = 1e-3
 
-        # Robot home joint configuration (over tote 1)
+        # Robot home joint configuration 
         self.robot_home_joint_config = [
             -np.pi, -np.pi/2, np.pi/2, -np.pi/2, -np.pi/2, 0]
-        # Robot goal joint configuration (over tote 1)
+        # Robot goal joint configuration 
         self.robot_goal_joint_config = [
             0, -np.pi/2, np.pi/2, -np.pi/2, -np.pi/2, 0]
-
-        '''
-        # 2 load tote
-        # 3D workspace for tote 1
-        self._workspace1_bounds = np.array([
-            [0.38, 0.62],  # 3x2 rows: x,y,z cols: min,max
-            [-0.22, 0.22],
-            [0.00, 0.5]
-        ])
-        # 3D workspace for tote 2
-        self._workspace2_bounds = np.copy(self._workspace1_bounds)
-        self._workspace2_bounds[0, :] = - self._workspace2_bounds[0, ::-1]        # Load totes and fix them to their position
-        # Load totes and fix them to their position
-        self._tote1_position = (
-            self._workspace1_bounds[:, 0] + self._workspace1_bounds[:, 1]) / 2
-        self._tote1_position[2] = 0.01
-        self._tote1_body_id = p.loadURDF(
-            "assets/tote/toteA_large.urdf", self._tote1_position, p.getQuaternionFromEuler([0, 0, 0]), useFixedBase=True)
-
-        self._tote2_position = (
-            self._workspace2_bounds[:, 0] + self._workspace2_bounds[:, 1]) / 2
-        self._tote2_position[2] = 0.01
-        self._tote2_body_id = p.loadURDF(
-            "assets/tote/toteA_large.urdf", self._tote2_position, p.getQuaternionFromEuler([0, 0, 0]), useFixedBase=True)
-        '''
-        
-        # 3. load gripper
-        self.robot_end_effector_link_index = 9
-        self._robot_tool_offset = [0, 0, -0.05]
-        # Distance between tool tip and end-effector joint
-        self._tool_tip_to_ee_joint = np.array([0, 0, 0.15])
-
-        # Attach robotiq gripper to UR5 robot
-        # - We use createConstraint to add a fixed constraint between the ur5 robot and gripper.
-        self._gripper_body_id = p.loadURDF("assets/gripper/robotiq_2f_85.urdf")
-        p.resetBasePositionAndOrientation(self._gripper_body_id, [
-                                          0.5, 0.1, 0.2], p.getQuaternionFromEuler([np.pi, 0, 0]))
-
-        p.createConstraint(self.robot_body_id, self.robot_end_effector_link_index, self._gripper_body_id, 0, jointType=p.JOINT_FIXED, jointAxis=[
-                           0, 0, 0], parentFramePosition=[0, 0, 0], childFramePosition=self._robot_tool_offset, childFrameOrientation=p.getQuaternionFromEuler([0, 0, np.pi/2]))
-
-        # Set friction coefficients for gripper fingers
-        for i in range(p.getNumJoints(self._gripper_body_id)):
-            p.changeDynamics(self._gripper_body_id, i, lateralFriction=1.0, spinningFriction=1.0,
-                             rollingFriction=0.0001, frictionAnchor=True)
         
         self.set_joints(self.robot_home_joint_config)
 
-        # # 4. load camera
-        # self.camera = camera.Camera(
-        #     image_size=(128, 128),
-        #     near=0.01,
-        #     far=10.0,
-        #     fov_w=80
-        # )
-        # camera_target_position = (self._workspace1_bounds[:, 0] + self._workspace1_bounds[:, 1]) / 2
-        # camera_target_position[2] = 0
-        # camera_distance = np.sqrt(((np.array([0.5, -0.5, 0.5]) - camera_target_position)**2).sum())
-        # self.view_matrix = p.computeViewMatrixFromYawPitchRoll(
-        #     cameraTargetPosition=camera_target_position,
-        #     distance=camera_distance,
-        #     yaw=90,
-        #     pitch=-90,
-        #     roll=0,
-        #     upAxisIndex=2,
-        # )
+        self.robot_end_effector_link_index = 8 # refer to the last link of the UR5 robot (virtual ee)
+        
+        self.boxes = {}
+        self.currently_grasped_box = None
+        self.grasp_constraint = None
 
-        # 5. prepare loading objects
-        self.object_ids = list()
+        self.collision_threshold = 0.0001
+        self.efficiency_weight = 0.7
+        self.collision_weight = 0.3
+        self.collision_scaling_factor = 10.0
+        
+        self.efficiency_calculator = StackingEfficiencyCalculator()
+        
     
-    def camera_to_world(self, cam_coords):
-        pose = camera.cam_view2pose(self.view_matrix)
-        world_coords = cam_coords @ pose[:3,:3].T + pose[:3,3]
-        return world_coords
-    
-    def ob_pos_to_ee_pos(self, obj_pos, obj_oreintation, obj_id):
-        # In this assignment we assume the object pose is the grasp pose.  
-        # we only covert the pose to a top down grasp angle.  
-        world_coord =  obj_pos
-        rot_r = p.getEulerFromQuaternion(obj_oreintation)
-        # get the rotation along z-axis 
-        world_angle = rot_r[2] + np.pi/2
-        return world_coord, world_angle
-
-    def load_ycb_objects(self, name_list, seed=None):
-        rs = np.random.RandomState(seed=seed)
-        self.name_list = name_list
-        for name in name_list:
-            urdf_path = getURDFPath(name)
-            position, orientation = self.get_random_pose(rs)
-
-            obj_id = p.loadURDF(urdf_path, 
-                position, p.getQuaternionFromEuler(orientation))
-            self.object_ids.append(obj_id)
-
-        self.step_simulation(1e3)
-
-    # def observe(self):
-    #     rgb_obs, depth_obs, mask_obs = camera.make_obs(self.camera, self.view_matrix)
-    #     return rgb_obs, depth_obs, mask_obs
-    
-    # def get_random_pose(self, rs):
-    #     low = self._workspace1_bounds[:,0].copy()
-    #     low[-1] += 0.2
-    #     high = self._workspace1_bounds[:,1].copy()
-    #     high[-1] += 0.2
-    #     position = rs.uniform(low, high, size=3)
-    #     orientation = rs.uniform(-np.pi, np.pi,size=3)
-    #     return position, orientation
-
-    # def reset_objects(self, seed=None):
-    #     rs = np.random.RandomState(seed=seed)
-    #     for obj_id in self.object_ids:
-    #         position, orientation = self.get_random_pose(rs)
-    #         p.resetBasePositionAndOrientation(
-    #             obj_id, position, p.getQuaternionFromEuler(orientation))
-    #     self.step_simulation(1e3)
-    
-    def remove_objects(self):
-        for obj_id in self.object_ids:
-            p.removeBody(obj_id)
-        self.object_ids = list()
-    
-    def get_object_pose(self, obj_id): 
-        position, orientation = p.getBasePositionAndOrientation(obj_id)
-        return position, orientation
-
     def set_joints(self, target_joint_state, steps=1e2):
         assert len(self._robot_joint_indices) == len(target_joint_state)
         for joint, value in zip(self._robot_joint_indices, target_joint_state):
             p.resetJointState(self.robot_body_id, joint, value)
         if steps > 0:
             self.step_simulation(steps)
+    
+    def step_simulation(self, num_steps):
+        """
+        Step the simulation forward by num_steps timesteps.
+        Each timestep is 1/240 seconds (PyBullet's default timestep).
+        """
+        for i in range(int(num_steps)*10):
+            p.stepSimulation()
 
-    def num_object_in_tote1(self):
-        num_in = 0
-        low = self._workspace1_bounds[:,0].copy()
-        low -= 0.2
-        high = self._workspace1_bounds[:,1].copy()
-        high += 0.2
+    def load_box(self):
+        width = 0.1  # 5cm fixed width
+        length_ = [0.1, 0.2]
+        height_ = [0.1, 0.2]
+        mass = 1.        # 100g mass
+        length = np.random.uniform(length_[0], length_[1])
+        height = np.random.uniform(height_[0], length_[1])
+        box_dimensions = [length,width,height]
+        
+        # Create collision and visual shapes with the random dimensions
+        box_collision_shape = p.createCollisionShape(
+            p.GEOM_BOX,
+            halfExtents=[dim/2 for dim in box_dimensions]
+        )
+        
+        box_visual_shape = p.createVisualShape(
+            p.GEOM_BOX,
+            halfExtents=[dim/2 for dim in box_dimensions],
+            rgbaColor=[1, 0, 0, 1]  # Red color
+        )
+        # Create the box body
+        box_id = p.createMultiBody(
+            baseMass=mass,
+            baseCollisionShapeIndex=box_collision_shape,
+            baseVisualShapeIndex=box_visual_shape,
+            basePosition=[0.5, 0, 0.1]  # Default position
+        )
+        p.changeDynamics(box_id, -1,
+            lateralFriction=1.0,
+            spinningFriction=1.0,
+            rollingFriction=0.0001)
+        
+        self.boxes[box_id] = box_dimensions
+        return box_id, box_dimensions
+    
+    def robot_go_home(self, speed=3.0):
+        self.move_joints(self.robot_home_joint_config, speed=speed)
+    
+    def move_joints(self, target_joint_state, acceleration=10, speed=3.0):
+        """
+            Move robot arm to specified joint configuration by appropriate motor control
+        """
+        assert len(self._robot_joint_indices) == len(target_joint_state)
+        dt = 1./240
+        q_current = np.array([x[0] for x in p.getJointStates(self.robot_body_id, self._robot_joint_indices)])
+        q_target = np.array(target_joint_state)
+        q_traj = get_movej_trajectory(q_current, q_target, 
+            acceleration=acceleration, speed=speed)
+        qdot_traj = np.gradient(q_traj, dt, axis=0)
+        p_gain = 1 * np.ones(len(self._robot_joint_indices))
+        d_gain = 1 * np.ones(len(self._robot_joint_indices))
 
-        for object_id in self.object_ids:
-            pos, _ = p.getBasePositionAndOrientation(object_id)
-            pos = np.array(pos)
-            is_in = (low < pos).all()
-            is_in &= (pos < high).all()
-            if is_in:
-                num_in += 1
-        return num_in
+        for i in range(len(q_traj)):
+            p.setJointMotorControlArray(
+                bodyUniqueId=self.robot_body_id, 
+                jointIndices=self._robot_joint_indices,
+                controlMode=p.POSITION_CONTROL, 
+                targetPositions=q_traj[i],
+                targetVelocities=qdot_traj[i],
+                positionGains=p_gain,
+                velocityGains=d_gain
+            )
+            self.step_simulation(1)
+            
+    def move_tool(self, position, orientation, acceleration=10, speed=3.0):
+        """
+            Move robot tool (end-effector) to a specified pose
+            @param position: Target position of the end-effector link
+            @param orientation: Target orientation of the end-effector link
+        """
+        joint_state = p.calculateInverseKinematics(bodyUniqueId = self.robot_body_id, 
+                                                   endEffectorLinkIndex = self.robot_end_effector_link_index,
+                                                   targetPosition = position, 
+                                                   targetOrientation = orientation,
+                                                   maxNumIterations = 80)
+        self.move_joints(joint_state, acceleration=acceleration, speed=speed)
+        
+    
+    def grasp_box(self, box_id: int):
+        """
+        Create a fixed constraint between the gripper and specified box that maintains
+        the relative position between them at the time of grasping.
+        """
+        # Get current positions and orientations of both ee and box
+        ee_state = p.getLinkState(self.robot_body_id, self.robot_end_effector_link_index)
+        box_pos, box_orn = p.getBasePositionAndOrientation(box_id)
+        
+        # Calculate the relative transform between gripper and box
+        inv_ee_pos, inv_ee_orn = p.invertTransform(ee_state[0], ee_state[1])
+        relative_pos, relative_orn = p.multiplyTransforms(
+            inv_ee_pos, inv_ee_orn,
+            box_pos, box_orn
+        )
+        
+        # Create constraint with the relative transform
+        self.grasp_constraint = p.createConstraint(
+            parentBodyUniqueId=self.robot_body_id,
+            parentLinkIndex=self.robot_end_effector_link_index,
+            childBodyUniqueId=box_id,
+            childLinkIndex=-1,  # -1 for the base
+            jointType=p.JOINT_FIXED,
+            jointAxis=[0, 0, 0],
+            parentFramePosition=relative_pos,
+            childFramePosition=[0, 0, 0],
+            parentFrameOrientation=relative_orn,
+            childFrameOrientation=[0, 0, 0, 1]
+        )
 
+        
+        # Set high maximum force to ensure rigid connection
+        p.changeConstraint(self.grasp_constraint, maxForce=1000)
+        self.currently_grasped_box = box_id
+        
+        # Optional: Disable collisions between gripper and box while grasped
+    #     for joint_idx in range(p.getNumJoints(self._gripper_body_id)):
+    #         p.setCollisionFilterPair(
+    #             self._gripper_body_id, box_id,
+    #             joint_idx, -1, 0
+    #         )
+
+    
+    def release_box(self):
+        """Release the currently grasped box by removing the constraint."""
+        if self.grasp_constraint is not None:
+            p.removeConstraint(self.grasp_constraint)
+            self.grasp_constraint = None
+            self.currently_grasped_box = None
+
+    def execute_grasp(self, box_id, box_dimension):
+        """
+        Execute grasp sequence without gripper movements
+        """
+        grasp_position, _ = p.getBasePositionAndOrientation(box_id)
+        grasp_position = np.array(grasp_position) + np.array([0, 0, box_dimension[2]/2 + 0.005])
+        end_effector_orientation = p.getQuaternionFromEuler([np.pi, 0, 0])  # Adjust as needed
+        
+        pre_grasp_position = grasp_position + np.array([0, 0, 0.2])
+        post_grasp_position = grasp_position + np.array([0, 0, 0.2])
+        
+        # Move to pre-grasp position
+        self.move_tool(pre_grasp_position, end_effector_orientation)
+        
+        # Move to grasp position
+        self.move_tool(grasp_position, end_effector_orientation)
+        
+        # Create fixed constraint
+        self.grasp_box(box_id)
+        
+        # Move to post-grasp position
+        self.move_tool(post_grasp_position, end_effector_orientation)
+        
+        # Move to home position
+        self.robot_go_home()
+        
+        return True if self.grasp_constraint is not None else False
+    
+
+    def add_noise(self,box_id):
+        true_position, _ = p.getBasePositionAndOrientation(box_id)
+        true_position = list(true_position)
+        noise_std=[0.005, 0.005, 0.005]
+        noisy_position = [
+        true_position[0] + np.random.normal(0, noise_std[0]),  # X-axis noise
+        true_position[1] + np.random.normal(0, noise_std[1]),  # Y-axis noise
+        true_position[2] + np.random.normal(0, noise_std[2])   # Z-axis noise
+        ]
+    
+        return noisy_position
+        
+        
+    def convert_pose_to_top_down():
+        pass
+    
     def move_joints(self, target_joint_state, acceleration=10, speed=3.0):
         """
             Move robot arm to specified joint configuration by appropriate motor control
@@ -224,84 +324,95 @@ class UR5PickEnviornment:
             @param position: Target position of the end-effector link
             @param orientation: Target orientation of the end-effector link
         """
-        # ========= TODO: Part 1 ========
-        # Using inverse kinematics (p.calculateInverseKinematics), find out the target joint configuration of the robot
-        # in order to reach the desired end_effector position and orientation
-        # HINT: p.calculateInverseKinematics takes in the end effector **link index** and not the **joint index**. You can use 
-        #   self.robot_end_effector_link_index for this 
-        # HINT: You might want to tune optional parameters of p.calculateInverseKinematics for better performance (though this is not strictly necessary)
-        # Then move the robot to the computed IK joint angles
-        # ===============================
-        jointposes = p.calculateInverseKinematics(self.robot_body_id,self.robot_end_effector_link_index, position, orientation,residualThreshold=1e-4)
-        self.move_joints(jointposes, acceleration=acceleration, speed=speed)
-       
-    def robot_go_home(self, speed=3.0):
-        self.move_joints(self.robot_home_joint_config, speed=speed)
-
-    def close_gripper(self):
-        p.setJointMotorControl2(
-            self._gripper_body_id, 1, p.VELOCITY_CONTROL, targetVelocity=5, force=10000)
-        self.step_simulation(4e2)
-
-    def open_gripper(self):
-        p.setJointMotorControl2(
-            self._gripper_body_id, 1, p.VELOCITY_CONTROL, targetVelocity=-5, force=10000)
-        self.step_simulation(4e2)
-
-    def check_grasp_success(self):
-        return p.getJointState(self._gripper_body_id, 1)[0] < 0.834 - 0.001
-
-    def execute_grasp(self, grasp_position, grasp_angle):
-        """
-            Execute grasp sequence
-            @param: grasp_position: 3d position of place where the gripper jaws will be closed
-            @param: grasp_angle: angle of gripper before executing grasp from positive x axis in radians 
-        """
-        # Adjust grasp_position to account for end-effector length
-        grasp_position = grasp_position + self._tool_tip_to_ee_joint
-        gripper_orientation = p.getQuaternionFromEuler([np.pi, 0, grasp_angle])
-        pre_grasp_position_over_bin = grasp_position+np.array([0, 0, 0.3])
-        post_grasp_position = grasp_position+np.array([0, 0, 0.3])
-        grasp_success = False
-        # ========= PART 2============
-        # TODO: Implement the following grasp sequence:
-        # 1. open gripper
-        # 2. Move gripper to pre_grasp_position_over_bin
-        # 3. Move gripper to grasp_position
-        # 4. Close gripper
-        # 5. Move gripper to post_grasp_position
-        # 6. Move robot to robot_home_joint_config
-        # 7. Detect whether or not the object was grasped and return grasp_success
-        # ============================
-        self.open_gripper()
-        self.move_tool(pre_grasp_position_over_bin,gripper_orientation)
-        self.move_tool(grasp_position,gripper_orientation)
-        self.close_gripper()
-        self.move_tool(post_grasp_position,gripper_orientation)
-        self.robot_go_home()
-        grasp_success = self.check_grasp_success()
+        joint_state = p.calculateInverseKinematics(bodyUniqueId = self.robot_body_id, 
+                                                   endEffectorLinkIndex = self.robot_end_effector_link_index,
+                                                   targetPosition = position, 
+                                                   targetOrientation = orientation,
+                                                   maxNumIterations = 80)
+        self.move_joints(joint_state, acceleration=acceleration, speed=speed)
+    
+    def calculate_stacking_efficiency(self) -> float:
+        """Calculate the ratio between occupied and bounding box volume."""
+        if len(self.boxes) < 2:
+            return 0.0
+            
+        # Collect all corner points from all boxes
+        all_corners = []
+        for box_id in self.boxes:
+            pos, orn = p.getBasePositionAndOrientation(box_id)
+            half_extents = [dim/2 for dim in self.boxes[box_id]]
+            corners = self.efficiency_calculator.get_box_corners(
+                list(pos), list(orn), half_extents)
+            all_corners.extend(corners)
         
-        return grasp_success
-
-    def execute_place(self):
-        self.move_joints([
-            0, -np.pi/2, np.pi/2, -np.pi/2, -np.pi/2, 0], speed=6.0)
-        self.open_gripper()
-        self.robot_go_home(speed=6.0)
+        all_corners = np.array(all_corners)
         
-    def step_simulation(self, num_steps):
-        for i in range(int(num_steps)):
-            p.stepSimulation()
-            if self._gripper_body_id is not None:
-                # Constraints
-                gripper_joint_positions = np.array([p.getJointState(self._gripper_body_id, i)[
-                                                0] for i in range(p.getNumJoints(self._gripper_body_id))])
-                p.setJointMotorControlArray(
-                    self._gripper_body_id, [6, 3, 8, 5, 10], p.POSITION_CONTROL,
-                    [
-                        gripper_joint_positions[1], -gripper_joint_positions[1], 
-                        -gripper_joint_positions[1], gripper_joint_positions[1],
-                        gripper_joint_positions[1]
-                    ],
-                    positionGains=np.ones(5)
-                )
+        # Calculate volumes
+        bounding_volume = self.efficiency_calculator.calculate_bounding_box_volume(all_corners)
+        occupied_volume = self.efficiency_calculator.calculate_total_box_volume(self.boxes)
+        
+        # Calculate efficiency ratio
+        efficiency = occupied_volume / bounding_volume if bounding_volume > 0 else 0
+        return efficiency
+        
+    def detect_collisions(self) -> Dict[str, float]:
+        """
+        Detect collisions between the grasped box and other boxes.
+        Returns collision metrics including maximum impact force.
+        """
+        if self.currently_grasped_box is None:
+            return {'collision_force': 0.0, 'max_impact': 0.0, 'num_contacts': 0}
+        
+        total_collision_force = 0.0
+        max_impact = 0.0
+        num_contacts = 0
+        
+        for box_id in self.boxes:
+            if box_id != self.currently_grasped_box:
+                points = p.getContactPoints(self.currently_grasped_box, box_id)
+                if points:
+                    for point in points:
+                        normal_force = point[9]
+                        lateral_friction_force = point[10]
+                        total_force = np.sqrt(normal_force**2 + lateral_friction_force**2)
+                        
+                        if total_force > self.collision_threshold:
+                            total_collision_force += total_force
+                            max_impact = max(max_impact, total_force)
+                            num_contacts += 1
+        
+        return {
+            'collision_force': total_collision_force,
+            'max_impact': max_impact,
+            'num_contacts': num_contacts
+        }
+    
+    def get_stacking_reward(self) -> Dict[str, float]:
+        """
+        Calculate comprehensive reward based on:
+        1. Stacking efficiency (higher is better)
+        2. Collision penalties (lower is better)
+        """
+        # Get stacking efficiency
+        efficiency = self.calculate_stacking_efficiency()
+        
+        # Get collision information
+        collision_info = self.detect_collisions()
+        
+        # Calculate collision penalty (normalized between 0 and 1)
+        collision_penalty = min(1.0, collision_info['max_impact'] / self.collision_scaling_factor)
+        
+        # Calculate weighted reward components
+        efficiency_reward = efficiency * self.efficiency_weight
+        collision_reward = (1.0 - collision_penalty) * self.collision_weight
+        
+        # Calculate total reward
+        total_reward = efficiency_reward + collision_reward
+        
+        return {
+            'total_reward': total_reward,
+            'efficiency_reward': efficiency_reward,
+            'collision_reward': collision_reward,
+            'efficiency_ratio': efficiency,
+            'collision_penalty': collision_penalty
+        }
