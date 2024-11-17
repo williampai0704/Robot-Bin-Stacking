@@ -2,11 +2,12 @@ import pybullet as p
 import pybullet_data
 import numpy as np
 import time
-from typing import Tuple, List, Dict, Set
 
-from assets.ycb_objects import getURDFPath
-from utils import camera
+from typing import Tuple, List, Dict
+
+
 from utils.control import get_movej_trajectory
+
 
 class StackingEfficiencyCalculator:
     @staticmethod
@@ -51,7 +52,7 @@ class StackingEfficiencyCalculator:
             total_volume += volume
         return total_volume
 
-class BinPickEnviornment:
+class BinStackEnviornment:
     def __init__(self, gui=True):
         
         # 0 load environment
@@ -101,9 +102,15 @@ class BinPickEnviornment:
 
         p.createConstraint(self.robot_body_id, self.robot_end_effector_link_index, self._gripper_body_id, 0, jointType=p.JOINT_FIXED, jointAxis=[
                            0, 0, 0], parentFramePosition=[0, 0, 0], childFramePosition=self._robot_tool_offset, childFrameOrientation=p.getQuaternionFromEuler([0, 0, np.pi/2]))
+
+        # Set friction coefficients for gripper fingers
+        for i in range(p.getNumJoints(self._gripper_body_id)):
+            p.changeDynamics(self._gripper_body_id, i, lateralFriction=100.0, spinningFriction=100.0,
+                             rollingFriction=100., frictionAnchor=True)
+
         
         self.set_joints(self.robot_home_joint_config)
-
+        
         self.boxes = {}
         self.currently_grasped_box = None
         self.grasp_constraint = None
@@ -114,15 +121,227 @@ class BinPickEnviornment:
         self.collision_scaling_factor = 10.0
         
         self.efficiency_calculator = StackingEfficiencyCalculator()
+        
+    
+    def set_joints(self, target_joint_state, steps=1e2):
+        assert len(self._robot_joint_indices) == len(target_joint_state)
+        for joint, value in zip(self._robot_joint_indices, target_joint_state):
+            p.resetJointState(self.robot_body_id, joint, value)
+        if steps > 0:
+            self.step_simulation(steps)
+    
+    def step_simulation(self, num_steps):
+        for i in range(int(num_steps)*10):
+            p.stepSimulation()
+            if self._gripper_body_id is not None:
+                # Constraints
+                gripper_joint_positions = np.array([p.getJointState(self._gripper_body_id, i)[
+                                                0] for i in range(p.getNumJoints(self._gripper_body_id))])
+                p.setJointMotorControlArray(
+                    self._gripper_body_id, [6, 3, 8, 5, 10], p.POSITION_CONTROL,
+                    [
+                        gripper_joint_positions[1], -gripper_joint_positions[1], 
+                        -gripper_joint_positions[1], gripper_joint_positions[1],
+                        gripper_joint_positions[1]
+                    ],
+                    positionGains=np.ones(5)
+                )
+
+    def load_box(self):
+        width = 0.03  # 5cm fixed width
+        length_ = [0.05, 0.1]
+        height_ = [0.05, 0.1]
+        mass = 0.5        # 100g mass
+        length = np.random.uniform(length_[0], length_[1])
+        height = np.random.uniform(height_[0], length_[1])
+        box_dimensions = [length,width,height]
+        
+        # Create collision and visual shapes with the random dimensions
+        box_collision_shape = p.createCollisionShape(
+            p.GEOM_BOX,
+            halfExtents=[dim/2 for dim in box_dimensions]
+        )
+        
+        box_visual_shape = p.createVisualShape(
+            p.GEOM_BOX,
+            halfExtents=[dim/2 for dim in box_dimensions],
+            rgbaColor=[1, 0, 0, 1]  # Red color
+        )
+        # Create the box body
+        box_id = p.createMultiBody(
+            baseMass=mass,
+            baseCollisionShapeIndex=box_collision_shape,
+            baseVisualShapeIndex=box_visual_shape,
+            basePosition=[0.5, 0, 0.1]  # Default position
+        )
+        p.changeDynamics(box_id, -1,
+            lateralFriction=100.0,
+            spinningFriction=100.0,
+            rollingFriction=100.0)
+        
+        self.boxes[box_id] = box_dimensions
+        return box_id, box_dimensions
+        
+    def get_gripper_center_pose(self) -> Tuple[List[float], List[float]]:
+        """Get the center position and orientation of the gripper."""
+        gripper_state = p.getLinkState(self._gripper_body_id, 0)  # Adjust link index as needed
+        return gripper_state[0], gripper_state[1]
+    
+    def robot_go_home(self, speed=3.0):
+        self.move_joints(self.robot_home_joint_config, speed=speed)
+
+    def close_gripper(self):
+        p.setJointMotorControl2(
+            self._gripper_body_id, 1, p.VELOCITY_CONTROL, targetVelocity=3, force=10000)
+        self.step_simulation(4e2)
+
+    def open_gripper(self):
+        p.setJointMotorControl2(
+            self._gripper_body_id, 1, p.VELOCITY_CONTROL, targetVelocity=-5, force=10000)
+        self.step_simulation(4e2)
+
+    def check_grasp_success(self):
+        return p.getJointState(self._gripper_body_id, 1)[0] < 0.834 - 0.001
+    
+    def move_joints(self, target_joint_state, acceleration=10, speed=3.0):
+        """
+            Move robot arm to specified joint configuration by appropriate motor control
+        """
+        assert len(self._robot_joint_indices) == len(target_joint_state)
+        dt = 1./240
+        q_current = np.array([x[0] for x in p.getJointStates(self.robot_body_id, self._robot_joint_indices)])
+        q_target = np.array(target_joint_state)
+        q_traj = get_movej_trajectory(q_current, q_target, 
+            acceleration=acceleration, speed=speed)
+        qdot_traj = np.gradient(q_traj, dt, axis=0)
+        p_gain = 1 * np.ones(len(self._robot_joint_indices))
+        d_gain = 1 * np.ones(len(self._robot_joint_indices))
+
+        for i in range(len(q_traj)):
+            p.setJointMotorControlArray(
+                bodyUniqueId=self.robot_body_id, 
+                jointIndices=self._robot_joint_indices,
+                controlMode=p.POSITION_CONTROL, 
+                targetPositions=q_traj[i],
+                targetVelocities=qdot_traj[i],
+                positionGains=p_gain,
+                velocityGains=d_gain
+            )
+            self.step_simulation(1)
+            
+    def move_tool(self, position, orientation, acceleration=10, speed=3.0):
+        """
+            Move robot tool (end-effector) to a specified pose
+            @param position: Target position of the end-effector link
+            @param orientation: Target orientation of the end-effector link
+        """
+        # ========= TODO: Part 1 ========
+        # Using inverse kinematics (p.calculateInverseKinematics), find out the target joint configuration of the robot
+        # in order to reach the desired end_effector position and orientation
+        # HINT: p.calculateInverseKinematics takes in the end effector **link index** and not the **joint index**. You can use 
+        #   self.robot_end_effector_link_index for this 
+        # HINT: You might want to tune optional parameters of p.calculateInverseKinematics for better performance (though this is not strictly necessary)
+        # Then move the robot to the computed IK joint angles
+        # ===============================
+        jointposes = p.calculateInverseKinematics(self.robot_body_id,self.robot_end_effector_link_index, position, orientation,residualThreshold=1e-4)
+        self.move_joints(jointposes, acceleration=acceleration, speed=speed)
+        
+    def execute_grasp(self, box_id, box_dimension):
+        """
+            Execute grasp sequence
+            @param: grasp_position: 3d position of place where the gripper jaws will be closed
+            @param: grasp_angle: angle of gripper before executing grasp from positive x axis in radians 
+        """
+        # Adjust grasp_position to account for end-effector length
+        grasp_position,_ =  p.getBasePositionAndOrientation(box_id)
+        grasp_position = grasp_position + np.array([0, 0, box_dimension[2]])
+        gripper_orientation = p.getQuaternionFromEuler([np.pi, 0, np.pi/2])
+        
+        pre_grasp_position_over_bin = grasp_position+np.array([0, 0, 0.3])
+        post_grasp_position = grasp_position+np.array([0, 0, 0.3])
+        grasp_success = False
+        # ========= PART 2============
+        # TODO: Implement the following grasp sequence:
+        # 1. open gripper
+        # 2. Move gripper to pre_grasp_position_over_bin
+        # 3. Move gripper to grasp_position
+        # 4. Close gripper
+        # 5. Move gripper to post_grasp_position
+        # 6. Move robot to robot_home_joint_config
+        # 7. Detect whether or not the object was grasped and return grasp_success
+        # ============================
+        self.open_gripper()
+        self.move_tool(pre_grasp_position_over_bin,gripper_orientation)
+        self.move_tool(grasp_position,gripper_orientation)
+        self.close_gripper()
+        self.move_tool(post_grasp_position,gripper_orientation)
+        self.robot_go_home()
+        grasp_success = self.check_grasp_success()
+        
+        return grasp_success
+    
+    # def grasp_box(self, box_id: int):
+    #     """
+    #     Create a fixed constraint between the gripper and specified box that maintains
+    #     the relative position between them at the time of grasping.
+    #     """
+    #     # Get current positions and orientations of both gripper and box
+    #     gripper_state = p.getLinkState(self._gripper_body_id, 0)
+    #     box_pos, box_orn = p.getBasePositionAndOrientation(box_id)
+        
+    #     # Calculate the relative transform between gripper and box
+    #     inv_gripper_pos, inv_gripper_orn = p.invertTransform(gripper_state[0], gripper_state[1])
+    #     relative_pos, relative_orn = p.multiplyTransforms(
+    #         inv_gripper_pos, inv_gripper_orn,
+    #         box_pos, box_orn
+    #     )
+        
+    #     # Create constraint with the relative transform
+    #     self.grasp_constraint = p.createConstraint(
+    #         parentBodyUniqueId=self._gripper_body_id,
+    #         parentLinkIndex=0,  # Gripper base link
+    #         childBodyUniqueId=box_id,
+    #         childLinkIndex=-1,  # -1 for the base
+    #         jointType=p.JOINT_FIXED,
+    #         jointAxis=[0, 0, 0],
+    #         parentFramePosition=relative_pos,
+    #         childFramePosition=[0, 0, 0],
+    #         parentFrameOrientation=relative_orn,
+    #         childFrameOrientation=[0, 0, 0, 1]
+    #     )
 
         
-    def load_box():
+    #     # Set the maximum force the constraint can apply
+    #     p.changeConstraint(self.grasp_constraint, maxForce=500)
+    #     self.currently_grasped_box = box_id
         
-    def get_gripper_pose():
+    #     # Optional: Disable collisions between gripper and box while grasped
+    #     for joint_idx in range(p.getNumJoints(self._gripper_body_id)):
+    #         p.setCollisionFilterPair(
+    #             self._gripper_body_id, box_id,
+    #             joint_idx, -1, 0
+    #         )
+
     
-    def grasp_box():
+    # def release_box(self):
+    #     if self.grasp_constraint is not None:
+    #         p.removeConstraint(self.grasp_constraint)
+    #         self.grasp_constraint = None
+    #         self.currently_grasped_box = None
     
-    def release_box():
+
+    def add_noise(self,box_id):
+        true_position, _ = p.getBasePositionAndOrientation(box_id)
+        true_position = list(true_position)
+        noise_std=[0.005, 0.005, 0.005]
+        noisy_position = [
+        true_position[0] + np.random.normal(0, noise_std[0]),  # X-axis noise
+        true_position[1] + np.random.normal(0, noise_std[1]),  # Y-axis noise
+        true_position[2] + np.random.normal(0, noise_std[2])   # Z-axis noise
+        ]
+    
+        return noisy_position
+        
         
     def convert_pose_to_top_down():
         pass
