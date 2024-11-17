@@ -1,4 +1,4 @@
-name: hw4
+name: robot-bin-stacking
 channels:
   - conda-forge
 dependencies:

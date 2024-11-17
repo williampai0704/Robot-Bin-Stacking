@@ -2,9 +2,55 @@ import pybullet as p
 import pybullet_data
 import numpy as np
 import time
+
 from typing import Tuple, List, Dict
 
+
 from utils.control import get_movej_trajectory
+
+
+class StackingEfficiencyCalculator:
+    @staticmethod
+    def get_box_corners(position: List[float], orientation: List[float], 
+                       half_extents: List[float]) -> np.ndarray:
+        """
+        Get the 8 corners of a box given its position, orientation, and dimensions.
+        
+        Args:
+            position: [x, y, z] center position
+            orientation: quaternion [x, y, z, w]
+            half_extents: [x, y, z] half-lengths in each dimension
+        """
+        # Create corner points in local coordinates
+        corners = np.array([
+            [ 1,  1,  1], [ 1,  1, -1], [ 1, -1,  1], [ 1, -1, -1],
+            [-1,  1,  1], [-1,  1, -1], [-1, -1,  1], [-1, -1, -1]
+        ]) * np.array(half_extents)  # Now using different scales for each dimension
+        
+        # Convert quaternion to rotation matrix
+        rot_matrix = np.array(p.getMatrixFromQuaternion(orientation)).reshape(3, 3)
+        
+        # Rotate and translate corners
+        transformed_corners = corners @ rot_matrix.T + position
+        return transformed_corners
+
+    @staticmethod
+    def calculate_bounding_box_volume(points: np.ndarray) -> float:
+        """Calculate volume of axis-aligned bounding box containing all points."""
+        min_coords = np.min(points, axis=0)
+        max_coords = np.max(points, axis=0)
+        dimensions = max_coords - min_coords
+        return np.prod(dimensions)
+
+    @staticmethod
+    def calculate_total_box_volume(boxes: Dict[int, tuple]) -> float:
+        """Calculate total volume of all boxes with different dimensions."""
+        total_volume = 0
+        for box_info in boxes.values():
+            dimensions = box_info
+            volume = dimensions[0] * dimensions[1] * dimensions[2]
+            total_volume += volume
+        return total_volume
 
 class BinStackEnviornment:
     def __init__(self, gui=True):
@@ -61,15 +107,20 @@ class BinStackEnviornment:
         for i in range(p.getNumJoints(self._gripper_body_id)):
             p.changeDynamics(self._gripper_body_id, i, lateralFriction=100.0, spinningFriction=100.0,
                              rollingFriction=100., frictionAnchor=True)
+
         
         self.set_joints(self.robot_home_joint_config)
         
-        
-        self.boxes: Dict[int,Tuple] = {}
+        self.boxes = {}
         self.currently_grasped_box = None
         self.grasp_constraint = None
-        # Collision detection parameters
-        self.collision_threshold = 0.0001  # Minimum contact force to register
+
+        self.collision_threshold = 0.0001
+        self.efficiency_weight = 0.7
+        self.collision_weight = 0.3
+        self.collision_scaling_factor = 10.0
+        
+        self.efficiency_calculator = StackingEfficiencyCalculator()
         
     
     def set_joints(self, target_joint_state, steps=1e2):
@@ -258,6 +309,7 @@ class BinStackEnviornment:
     #         parentFrameOrientation=relative_orn,
     #         childFrameOrientation=[0, 0, 0, 1]
     #     )
+
         
     #     # Set the maximum force the constraint can apply
     #     p.changeConstraint(self.grasp_constraint, maxForce=500)
@@ -277,6 +329,7 @@ class BinStackEnviornment:
     #         self.grasp_constraint = None
     #         self.currently_grasped_box = None
     
+
     def add_noise(self,box_id):
         true_position, _ = p.getBasePositionAndOrientation(box_id)
         true_position = list(true_position)
@@ -290,10 +343,130 @@ class BinStackEnviornment:
         return noisy_position
         
         
-    def move_tool():
-        
-    def detect_collision():
+    def convert_pose_to_top_down():
+        pass
     
-    def pack_efficiency():
+    def move_joints(self, target_joint_state, acceleration=10, speed=3.0):
+        """
+            Move robot arm to specified joint configuration by appropriate motor control
+        """
+        assert len(self._robot_joint_indices) == len(target_joint_state)
+        dt = 1./240
+        q_current = np.array([x[0] for x in p.getJointStates(self.robot_body_id, self._robot_joint_indices)])
+        q_target = np.array(target_joint_state)
+        q_traj = get_movej_trajectory(q_current, q_target, 
+            acceleration=acceleration, speed=speed)
+        qdot_traj = np.gradient(q_traj, dt, axis=0)
+        p_gain = 1 * np.ones(len(self._robot_joint_indices))
+        d_gain = 1 * np.ones(len(self._robot_joint_indices))
+
+        for i in range(len(q_traj)):
+            p.setJointMotorControlArray(
+                bodyUniqueId=self.robot_body_id, 
+                jointIndices=self._robot_joint_indices,
+                controlMode=p.POSITION_CONTROL, 
+                targetPositions=q_traj[i],
+                targetVelocities=qdot_traj[i],
+                positionGains=p_gain,
+                velocityGains=d_gain
+            )
+            self.step_simulation(1)
+
+    def move_tool(self, position, orientation, acceleration=10, speed=3.0):
+        """
+            Move robot tool (end-effector) to a specified pose
+            @param position: Target position of the end-effector link
+            @param orientation: Target orientation of the end-effector link
+        """
+        joint_state = p.calculateInverseKinematics(bodyUniqueId = self.robot_body_id, 
+                                                   endEffectorLinkIndex = self.robot_end_effector_link_index,
+                                                   targetPosition = position, 
+                                                   targetOrientation = orientation,
+                                                   maxNumIterations = 80)
+        self.move_joints(joint_state, acceleration=acceleration, speed=speed)
+    
+    def calculate_stacking_efficiency(self) -> float:
+        """Calculate the ratio between occupied and bounding box volume."""
+        if len(self.boxes) < 2:
+            return 0.0
+            
+        # Collect all corner points from all boxes
+        all_corners = []
+        for box_id in self.boxes:
+            pos, orn = p.getBasePositionAndOrientation(box_id)
+            half_extents = [dim/2 for dim in self.boxes[box_id]]
+            corners = self.efficiency_calculator.get_box_corners(
+                list(pos), list(orn), half_extents)
+            all_corners.extend(corners)
         
-    def est_reward():
+        all_corners = np.array(all_corners)
+        
+        # Calculate volumes
+        bounding_volume = self.efficiency_calculator.calculate_bounding_box_volume(all_corners)
+        occupied_volume = self.efficiency_calculator.calculate_total_box_volume(self.boxes)
+        
+        # Calculate efficiency ratio
+        efficiency = occupied_volume / bounding_volume if bounding_volume > 0 else 0
+        return efficiency
+        
+    def detect_collisions(self) -> Dict[str, float]:
+        """
+        Detect collisions between the grasped box and other boxes.
+        Returns collision metrics including maximum impact force.
+        """
+        if self.currently_grasped_box is None:
+            return {'collision_force': 0.0, 'max_impact': 0.0, 'num_contacts': 0}
+        
+        total_collision_force = 0.0
+        max_impact = 0.0
+        num_contacts = 0
+        
+        for box_id in self.boxes:
+            if box_id != self.currently_grasped_box:
+                points = p.getContactPoints(self.currently_grasped_box, box_id)
+                if points:
+                    for point in points:
+                        normal_force = point[9]
+                        lateral_friction_force = point[10]
+                        total_force = np.sqrt(normal_force**2 + lateral_friction_force**2)
+                        
+                        if total_force > self.collision_threshold:
+                            total_collision_force += total_force
+                            max_impact = max(max_impact, total_force)
+                            num_contacts += 1
+        
+        return {
+            'collision_force': total_collision_force,
+            'max_impact': max_impact,
+            'num_contacts': num_contacts
+        }
+    
+    def get_stacking_reward(self) -> Dict[str, float]:
+        """
+        Calculate comprehensive reward based on:
+        1. Stacking efficiency (higher is better)
+        2. Collision penalties (lower is better)
+        """
+        # Get stacking efficiency
+        efficiency = self.calculate_stacking_efficiency()
+        
+        # Get collision information
+        collision_info = self.detect_collisions()
+        
+        # Calculate collision penalty (normalized between 0 and 1)
+        collision_penalty = min(1.0, collision_info['max_impact'] / self.collision_scaling_factor)
+        
+        # Calculate weighted reward components
+        efficiency_reward = efficiency * self.efficiency_weight
+        collision_reward = (1.0 - collision_penalty) * self.collision_weight
+        
+        # Calculate total reward
+        total_reward = efficiency_reward + collision_reward
+        
+        return {
+            'total_reward': total_reward,
+            'efficiency_reward': efficiency_reward,
+            'collision_reward': collision_reward,
+            'efficiency_ratio': efficiency,
+            'collision_penalty': collision_penalty
+        }
