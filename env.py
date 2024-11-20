@@ -2,6 +2,7 @@ import pybullet as p
 import pybullet_data
 import numpy as np
 import time
+import math
 
 from typing import Tuple, List, Dict
 
@@ -96,11 +97,12 @@ class BinStackEnviornment:
         self.currently_grasped_box = None
         self.grasp_constraint = None
 
-        self.collision_threshold = 0.0001
-        self.efficiency_weight = 0.7
-        self.collision_weight = 0.3
-        self.collision_scaling_factor = 10.0
-        
+        # self.collision_threshold = 0.0001
+        self.efficiency_weight = 0.6
+        self.collision_weight = 0.2
+        self.stack_weight = 0.2
+        # self.collision_scaling_factor = 10.0
+        self.collision_history = []
         self.efficiency_calculator = StackingEfficiencyCalculator()
         
     
@@ -120,12 +122,12 @@ class BinStackEnviornment:
             p.stepSimulation()
 
     def load_box(self):
-        width = 0.1  # 5cm fixed width
+        width = 0.100  # 5cm fixed width
         length_ = [0.1, 0.2]
         height_ = [0.1, 0.2]
         mass = 1.        # 100g mass
-        length = np.random.uniform(length_[0], length_[1])
-        height = np.random.uniform(height_[0], length_[1])
+        length = self.truncate_to_3_decimals(np.random.uniform(length_[0], length_[1]))# truncate to 3 decimals
+        height = self.truncate_to_3_decimals(np.random.uniform(height_[0], length_[1]))
         box_dimensions = [length,width,height]
         
         # Create collision and visual shapes with the random dimensions
@@ -316,6 +318,8 @@ class BinStackEnviornment:
                 positionGains=p_gain,
                 velocityGains=d_gain
             )
+            # print(self.detect_collisions()["num_contacts"])
+            collision_info = self.detect_collisions()
             self.step_simulation(1)
 
     def move_tool(self, position, orientation, acceleration=10, speed=3.0):
@@ -329,6 +333,7 @@ class BinStackEnviornment:
                                                    targetPosition = position, 
                                                    targetOrientation = orientation,
                                                    maxNumIterations = 80)
+        
         self.move_joints(joint_state, acceleration=acceleration, speed=speed)
     
     def calculate_stacking_efficiency(self) -> float:
@@ -363,31 +368,59 @@ class BinStackEnviornment:
         if self.currently_grasped_box is None:
             return {'collision_force': 0.0, 'max_impact': 0.0, 'num_contacts': 0}
         
-        total_collision_force = 0.0
-        max_impact = 0.0
-        num_contacts = 0
+        # total_collision_force = 0.0
+        # max_impact = 0.0
+        # num_contacts = 0
         
         for box_id in self.boxes:
             if box_id != self.currently_grasped_box:
                 points = p.getContactPoints(self.currently_grasped_box, box_id)
                 if points:
-                    for point in points:
-                        normal_force = point[9]
-                        lateral_friction_force = point[10]
-                        total_force = np.sqrt(normal_force**2 + lateral_friction_force**2)
-                        
-                        if total_force > self.collision_threshold:
-                            total_collision_force += total_force
-                            max_impact = max(max_impact, total_force)
-                            num_contacts += 1
+                    # Record the contact event with timestamp
+                    collision_event = {
+                        'timestamp': time.time(),
+                        'box_ids': (self.currently_grasped_box, box_id)
+                    }
+                    self.collision_history.append(collision_event)
+                    break  # Exit after finding first contact
         
-        return {
-            'collision_force': total_collision_force,
-            'max_impact': max_impact,
-            'num_contacts': num_contacts
-        }
+
+        # for box_id in self.boxes:
+        #     if box_id != self.currently_grasped_box:
+        #         points = p.getContactPoints(self.currently_grasped_box, box_id)
+        #         if points:
+        #             for point in points:
+        #                 normal_force = point[9]
+        #                 lateral_friction_force = point[10]
+        #                 total_force = np.sqrt(normal_force**2 + lateral_friction_force**2)
+                        
+        #                 if total_force > self.collision_threshold:
+        #                     total_collision_force += total_force
+        #                     max_impact = max(max_impact, total_force)
+        #                     num_contacts += 1
+        
+        # return {
+        #     'collision_force': total_collision_force,
+        #     'max_impact': max_impact,
+        #     'num_contacts': num_contacts
+        # }
+        
+    def is_Stacked(self):
+        threshold = 0.0001
+        if len(self.boxes) < 2:
+            return True
+        box_items = list(self.boxes.items())
+        current_box_id, curr_dim = box_items[-1]
+        curr_pos, _ = p.getBasePositionAndOrientation(current_box_id)
+        for prev_box_id, _ in box_items[:-1]:
+            prev_pos, prev_dim = p.getBasePositionAndOrientation(prev_box_id)
+            if((curr_pos[2] - curr_dim[2]/2. >= prev_pos[2] - prev_dim[2]/2. + threshold)):
+                continue
+            else:
+                return False
+        return True
     
-    def get_stacking_reward(self) -> Dict[str, float]:
+    def get_total_reward(self) -> Dict[str, float]:
         """
         Calculate comprehensive reward based on:
         1. Stacking efficiency (higher is better)
@@ -395,24 +428,35 @@ class BinStackEnviornment:
         """
         # Get stacking efficiency
         efficiency = self.calculate_stacking_efficiency()
+        efficiency = self.truncate_to_3_decimals(efficiency)
+        # # Get collision information
+        # collision_info = self.detect_collisions()
         
-        # Get collision information
-        collision_info = self.detect_collisions()
-        
-        # Calculate collision penalty (normalized between 0 and 1)
-        collision_penalty = min(1.0, collision_info['max_impact'] / self.collision_scaling_factor)
+        # # Calculate collision penalty (normalized between 0 and 1)
+        # collision_penalty = min(1.0, collision_info['max_impact'] / self.collision_scaling_factor)
         
         # Calculate weighted reward components
         efficiency_reward = efficiency * self.efficiency_weight
-        collision_reward = (1.0 - collision_penalty) * self.collision_weight
+        
+        collision_penalty = -100.0 if self.collision_history else 0
+        collision_reward = collision_penalty*self.collision_weight
+        self.collision_history = []
+        
+        stack_penalty = -50.0 if not self.is_Stacked() else 0
+        stack_reward = stack_penalty* self.stack_weight
+        # collision_reward = (1.0 - collision_penalty) * self.collision_weight
         
         # Calculate total reward
-        total_reward = efficiency_reward + collision_reward
+        total_reward = efficiency_reward + collision_reward + stack_reward
         
         return {
             'total_reward': total_reward,
             'efficiency_reward': efficiency_reward,
             'collision_reward': collision_reward,
             'efficiency_ratio': efficiency,
-            'collision_penalty': collision_penalty
+            'collision_penalty': collision_penalty,
+            'stack_penalty': stack_reward
         }
+        
+    def truncate_to_3_decimals(self,num):
+        return math.trunc(num * 1000) / 1000
