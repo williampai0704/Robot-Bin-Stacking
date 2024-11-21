@@ -101,6 +101,7 @@ class BinStackEnviornment:
         self.efficiency_weight = 0.6
         self.collision_weight = 0.2
         self.stack_weight = 0.2
+        self.stack_efficiency_scale = 100.0
         # self.collision_scaling_factor = 10.0
         self.collision_history = []
         self.efficiency_calculator = StackingEfficiencyCalculator()
@@ -427,7 +428,7 @@ class BinStackEnviornment:
         2. Collision penalties (lower is better)
         """
         # Get stacking efficiency
-        efficiency = self.calculate_stacking_efficiency()
+        efficiency = self.calculate_stacking_efficiency() * self.stack_efficiency_scale
         efficiency = self.truncate_to_3_decimals(efficiency)
         # # Get collision information
         # collision_info = self.detect_collisions()

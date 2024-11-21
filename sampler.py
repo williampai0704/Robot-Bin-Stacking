@@ -21,7 +21,7 @@ class Sampler:
         """
         self.env = env
         self.num_boxes = num_boxes
-        self.width = width
+        self.width = width  # dimension of the action space 
         self.resolution = resolution
         self.initial_box_position = initial_box_position
         self.num_episodes = num_episodes
@@ -45,7 +45,7 @@ class Sampler:
         
         # Headers for previously placed boxes (excluding initial box)
         for i in range(self.num_boxes - 2):
-            prefix = f'prev_box_{i+1}'
+            prefix = f'box_{i+1}'
             headers.extend([
                 f'{prefix}_x', f'{prefix}_z',
                 f'{prefix}_l', f'{prefix}_h'
@@ -234,3 +234,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
