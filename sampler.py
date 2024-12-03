@@ -9,7 +9,7 @@ from env import BinStackEnviornment
 class Sampler:
     def __init__(self, env, num_boxes: int = 3, width: float = 0.5,
                  resolution: float = 0.01, initial_box_position: List[float] = [1.,1.,0.01],
-                 num_episodes: int = 10):
+                 num_episodes: int = 10, perfect_ratio: float = 0.3):
         """
         Initialize the sampler for robot arm stacking actions.
         
@@ -25,9 +25,14 @@ class Sampler:
         self.resolution = resolution
         self.initial_box_position = initial_box_position
         self.num_episodes = num_episodes
-        self.output_file = 'stacking_samples_random.csv_'+ str(self.num_episodes)
-        # Calculate the number of samples in each dimension
-        self.num_samples = int(width / resolution)
+        self.perfect_ratio = perfect_ratio
+
+        # self.output_file = 'stacking_samples_random.csv_'+ str(self.num_episodes)
+        self.output_file = f'stacking_samples_mixed_{self.num_episodes}_p{perfect_ratio}.csv'
+
+        # self.num_samples = int(width / resolution)
+        num_perfect_episodes = int(num_episodes * perfect_ratio)
+        self.num_random_episodes = num_episodes - num_perfect_episodes
         
         # Initialize CSV file with headers
         self._initialize_csv()
@@ -71,7 +76,7 @@ class Sampler:
             'dimensions': dimensions
         }
         
-    def sample_action(self) -> Tuple[float, float]:
+    def sample_random_action(self) -> Tuple[float, float]:
         """
         Generate a random action within the sampling cube.
         
@@ -94,6 +99,32 @@ class Sampler:
         z = self.truncate_to_3_decimals(round(z / self.resolution) * self.resolution)
         
         return x, z
+    
+    def sample_perfect_action(self, placed_boxes: List[Tuple[int, List[float]]], current_box_dim: List[float]) -> Tuple[float, float]:
+        """
+        Generate a perfect stacking action based on previous box positions.
+        
+        Args:
+            placed_boxes: List of previously placed boxes
+            
+        Returns:
+            Tuple of (x, z) coordinates for end effector position
+        """
+        if not placed_boxes:
+            # If no boxes placed yet, use initial position
+            return self.initial_box_position[0], self.initial_box_position[2]
+        
+        # Get the last placed box's position and dimensions
+        last_box_id, last_box_dim = placed_boxes[-1]
+        last_box_pos, _ = p.getBasePositionAndOrientation(last_box_id)
+        
+        # Perfect placement strategy: 
+        # 1. Align x-coordinate with the previous box 
+        # 2. Place z-coordinate slightly above the previous box
+        x = last_box_pos[0]
+        z = last_box_pos[2] + last_box_dim[2]/2 + current_box_dim[2]/2 + 0.15  # Small offset
+        
+        return self.truncate_to_3_decimals(x), self.truncate_to_3_decimals(z)
     
     def setup_initial_box(self) -> Tuple[int, List[float]]:
         """Set up the initial fixed position box."""
@@ -162,13 +193,17 @@ class Sampler:
             placed_boxes.append((initial_box_id, initial_box_dim))
             
             # Stack remaining boxes
-            for stack_step in range(self.num_boxes - 1):
+            for _ in range(self.num_boxes - 1):
                 # Load new box to be placed
                 current_box_id, current_box_dim = self.env.load_box()
                 
                 p.resetBasePositionAndOrientation(current_box_id, [0.5,-0.5,0.1], p.getQuaternionFromEuler([0, 0, 0]))
-                # Generate random action
-                action_x, action_z = self.sample_action()
+                if episode < self.num_random_episodes:
+                    # Generate random action
+                    action_x, action_z = self.sample_random_action()
+                else:
+                    # Generate perfect action
+                    action_x, action_z = self.sample_perfect_action(placed_boxes, current_box_dim)
                 
                 # Execute action
                 grasp_success = self.env.execute_grasp(current_box_id, current_box_dim)
@@ -205,7 +240,7 @@ class Sampler:
                 p.removeBody(box_id)
                 self.env.boxes = {}
                 
-            print(f"Completed episode {episode}/{self.num_episodes}")
+            print(f"Completed episode {episode + 1}/{self.num_episodes}")
                 
     def close(self):
         """Clean up resources."""
@@ -216,14 +251,15 @@ class Sampler:
             
 def main():
     # Initialize environment and sampler
-    env = BinStackEnviornment(gui=True)  # Set gui=False for faster sampling
+    env = BinStackEnviornment(gui=False)  # Set gui=False for faster sampling
     sampler = Sampler(
         env,
         num_boxes=3,  # Total number of boxes to stack (including initial box)
         width=1.0,
         resolution=0.1,
-        initial_box_position=[0.5, 0.5, 0.1],  # Fixed position for first box
-        num_episodes=10
+        initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
+        num_episodes=10000,
+        perfect_ratio=0.2
     )
 
     # Generate samples
