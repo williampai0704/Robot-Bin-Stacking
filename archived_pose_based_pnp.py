@@ -2,7 +2,7 @@ import numpy as np
 import argparse
 from matplotlib import pyplot as plt
 from env import UR5PickEnviornment
-from preception import pose_est_state, pose_est_segicp
+from archived_preception import pose_est_state, pose_est_segicp
 
 
 def main():
