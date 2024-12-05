@@ -198,28 +198,28 @@ def optimize_model(transitions):
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
 
+def main():
+    num_epochs = 10000
 
-num_epochs = 10000
+    memory = process_data()
+    # print(memory.sample(5))
+    for i_epoch in range(num_epochs):
+        batches = memory.shuffle_and_sample(BATCH_SIZE)
+        for batch in batches:
+            # print(batch)
 
-memory = process_data()
-# print(memory.sample(5))
-for i_epoch in range(num_epochs):
-    batches = memory.shuffle_and_sample(BATCH_SIZE)
-    for batch in batches:
-        # print(batch)
+            optimize_model(batch)
+            # Soft update of the target network's weights
+            # θ′ ← τ θ + (1 −τ )θ′
+            target_net_state_dict = target_net.state_dict()
+            policy_net_state_dict = policy_net.state_dict()
+            for key in policy_net_state_dict:
+                target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+            target_net.load_state_dict(target_net_state_dict)
 
-        optimize_model(batch)
-        # Soft update of the target network's weights
-        # θ′ ← τ θ + (1 −τ )θ′
-        target_net_state_dict = target_net.state_dict()
-        policy_net_state_dict = policy_net.state_dict()
-        for key in policy_net_state_dict:
-            target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
-        target_net.load_state_dict(target_net_state_dict)
+    print('Complete')
+    torch.save(target_net.state_dict(), "model.pt")
 
-print('Complete')
-torch.save(target_net.state_dict(), "model.pt")
-
-
-
+if __name__ == "__main__":
+    main()
 
