@@ -91,7 +91,8 @@ memory = ReplayMemory(10000)
 
 def process_data():
 
-    df = pd.read_csv("stacking_samples_mixed_10_p1.0.csv")
+    df = pd.read_csv("stacking_samples_mixed_10000_p0.2.csv")
+    df = df[:20]
 
     state_headers = ["box_0_x","box_0_z","box_0_l","box_0_h","box_c_l","box_c_h","box_1_x","box_1_z","box_1_l","box_1_h"]
     action_headers = ["a_x","a_z"]
@@ -100,7 +101,7 @@ def process_data():
     # Process the DataFrame two rows at a time
     for i in range(0, len(df), 2):  # Step by 2
         if i + 1 < len(df):  # Ensure there's a next line for the pair
-            # Extract state, action, and next_state
+            # Extract state, action, and next_state (2nd box placement, even rows)
             state = df.loc[i, state_headers].values.tolist()
             action = df.loc[i, action_headers].values.tolist()
             next_state = df.loc[i + 1, state_headers].values.tolist()
@@ -108,7 +109,17 @@ def process_data():
 
             memory.push(torch.tensor(state), torch.tensor(action), torch.tensor(next_state), torch.tensor(reward))
 
+            # Extract state, action, and next_state (3rd box placement, odd rows)
+            state = df.loc[i + 1, state_headers].values.tolist()
+            action = df.loc[i + 1, action_headers].values.tolist()
+            # next_state fill with None 
+            reward = df.loc[i + 1, reward_headers].values.tolist()
+
+            memory.push(torch.tensor(state), torch.tensor(action), None, torch.tensor(reward))
+
+
     return memory 
+
 
 
 steps_done = 0
