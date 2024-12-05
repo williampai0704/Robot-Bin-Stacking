@@ -4,6 +4,9 @@ import numpy as np
 import time
 import math
 
+# Add this import for GPU detection
+import torch
+
 from typing import Tuple, List, Dict
 
 
@@ -127,7 +130,7 @@ class BinStackEnviornment:
         length_ = [0.1, 0.2]
         height_ = [0.1, 0.2]
         mass = 1.        # 100g mass
-        length = self.truncate_to_3_decimals(np.random.uniform(length_[0], length_[1]))# truncate to 3 decimals
+        length = self.truncate_to_3_decimals(np.random.uniform(length_[0], length_[1])) # truncate to 3 decimals
         height = self.truncate_to_3_decimals(np.random.uniform(height_[0], length_[1]))
         box_dimensions = [length,width,height]
         
@@ -255,7 +258,7 @@ class BinStackEnviornment:
         Execute grasp sequence without gripper movements
         """
         grasp_position, _ = p.getBasePositionAndOrientation(box_id)
-        grasp_position = np.array(grasp_position) + np.array([0, 0, box_dimension[2]/2 + 0.01])
+        grasp_position = np.array(grasp_position) + np.array([0, 0, box_dimension[2]/2 + 0.001])
         end_effector_orientation = p.getQuaternionFromEuler([np.pi, 0, 0])  # Adjust as needed
         
         pre_grasp_position = grasp_position + np.array([0, 0, 0.2])

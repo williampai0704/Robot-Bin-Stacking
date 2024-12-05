@@ -7,9 +7,9 @@ import math
 from env import BinStackEnviornment
 
 class Sampler:
-    def __init__(self, env, num_boxes: int = 3, width: float = 0.5,
-                 resolution: float = 0.01, initial_box_position: List[float] = [1.,1.,0.01],
-                 num_episodes: int = 10, perfect_ratio: float = 0.3):
+    def __init__(self, env, num_boxes: int, width: float,
+                 resolution: float, initial_box_position: List[float],
+                 num_episodes: int, perfect_ratio: float):
         """
         Initialize the sampler for robot arm stacking actions.
         
@@ -121,8 +121,9 @@ class Sampler:
         # Perfect placement strategy: 
         # 1. Align x-coordinate with the previous box 
         # 2. Place z-coordinate slightly above the previous box
+        # NOTE: the action coordinate is the tip of the robotic arm, not the center of the box
         x = last_box_pos[0]
-        z = last_box_pos[2] + last_box_dim[2]/2 + current_box_dim[2]/2 + 0.15  # Small offset
+        z = last_box_pos[2] + last_box_dim[2]/2 + current_box_dim[2] + 0.05  # Small offset
         
         return self.truncate_to_3_decimals(x), self.truncate_to_3_decimals(z)
     
@@ -251,15 +252,15 @@ class Sampler:
             
 def main():
     # Initialize environment and sampler
-    env = BinStackEnviornment(gui=False)  # Set gui=False for faster sampling
+    env = BinStackEnviornment(gui=True)  # Set gui=False for faster sampling
     sampler = Sampler(
         env,
         num_boxes=3,  # Total number of boxes to stack (including initial box)
         width=1.0,
         resolution=0.1,
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
-        num_episodes=10000,
-        perfect_ratio=0.2
+        num_episodes=10,
+        perfect_ratio=1.
     )
 
     # Generate samples
