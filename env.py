@@ -462,5 +462,9 @@ class BinStackEnviornment:
             'stack_penalty': stack_reward
         }
         
+    def close(self):
+        """Clean up resources."""
+        p.disconnect()
+        
     def truncate_to_3_decimals(self,num):
         return math.trunc(num * 1000) / 1000

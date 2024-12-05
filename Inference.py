@@ -3,9 +3,10 @@ import numpy as np
 import pybullet as p
 from env import BinStackEnviornment
 from RLmodel import DQN
+import math
 
 class PolicyActionSelector:
-    def __init__(self, model_path, state_dim=10, n_actions=11**2, resolution=0.1):
+    def __init__(self, model_path, state_dim=10, n_actions=11**2, resolution=0.1, num_boxes = 3):
         """
         Initialize the policy-based action selector.
         
@@ -27,6 +28,7 @@ class PolicyActionSelector:
         self.state_dim = state_dim
         self.n_actions = n_actions
         self.resolution = resolution
+        self.num_boxes = num_boxes
         
     def ind2coord(self, action_index, low=0., high=1.):
         """
@@ -46,6 +48,9 @@ class PolicyActionSelector:
         ax = (coord[0] / num) * width + low
         az = (coord[1] / num) * width + low
         return np.array([ax, az])
+    
+    def truncate_to_3_decimals(self, num):
+        return math.trunc(num * 1000) / 1000
     
     def select_action(self, state, initial_box_position):
         """
@@ -109,20 +114,16 @@ class PolicyActionSelector:
             current_box_dim[2]   # height
         ])
         
-        # Previously placed boxes (excluding initial box)
-        for i in range(max(0, len(placed_boxes) - 2)):
-            box_id, box_dim = placed_boxes[i+1]
-            box_pos, _ = p.getBasePositionAndOrientation(box_id)
-            state.extend([
-                box_pos[0],  # x
-                box_pos[2],  # z
-                box_dim[0],  # length
-                box_dim[1]   # height
-            ])
-        
-        # Pad with zeros if fewer boxes have been placed
-        while len(state) < self.state_dim:
-            state.append(0.0)
+        # Add previously placed boxes' information
+        for i in range(self.num_boxes - 2):
+            if i < len(placed_boxes) - 1:
+                box_id, box_dim = placed_boxes[i+1]
+                pos, _ = p.getBasePositionAndOrientation(box_id)
+                state.extend([self.truncate_to_3_decimals(pos[0]),self.truncate_to_3_decimals(pos[2])]) 
+                state.extend([self.truncate_to_3_decimals(box_dim[0]),self.truncate_to_3_decimals(box_dim[1])])
+            else:
+                # Padding for boxes not yet placed
+                state.extend([-1.0,-1.0,0.0,0.0])  # 2 for position, 2 for dimensions
         
         return state
 
@@ -191,7 +192,8 @@ def main():
         model_path="model.pt",  # Path to your saved model
         state_dim=10,  # As defined in your training script
         n_actions=11**2,  # As defined in your training script
-        resolution=0.1  # As defined in your training script
+        resolution=0.1,  # As defined in your training script
+        num_boxes=3
     )
     
     # Apply policy in simulation
