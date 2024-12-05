@@ -4,12 +4,12 @@ import csv
 from typing import List, Tuple, Dict
 import os
 import math
-from env import BinStackEnviornment
+from env import BinStackEnvironment
 
 class Sampler:
     def __init__(self, env, num_boxes: int, width: float,
                  resolution: float, initial_box_position: List[float],
-                 num_episodes: int, perfect_ratio: float):
+                 num_episodes: int, perfect_ratio: float, random_initial:bool):
         """
         Initialize the sampler for robot arm stacking actions.
         
@@ -23,12 +23,19 @@ class Sampler:
         self.num_boxes = num_boxes
         self.width = width  # dimension of the action space 
         self.resolution = resolution
-        self.initial_box_position = initial_box_position
         self.num_episodes = num_episodes
         self.perfect_ratio = perfect_ratio
-
+        
+        initial_sample_x = [0.3, 0.5]
+        
+        if random_initial:
+            self.initial_box_position = [self._to_3_decimals(np.random.uniform(initial_sample_x[0], initial_sample_x[1])),
+                                         0.5,0.0]
+        else:    
+            self.initial_box_position = initial_box_position
+        
         # self.output_file = 'stacking_samples_random.csv_'+ str(self.num_episodes)
-        self.output_file = f'stacking_samples_mixed_{self.num_episodes}_p{perfect_ratio}.csv'
+        self.output_file = f'noisy_init_fixed_{self.num_episodes}_p{perfect_ratio}.csv'
 
         # self.num_samples = int(width / resolution)
         num_perfect_episodes = int(num_episodes * perfect_ratio)
@@ -66,15 +73,6 @@ class Sampler:
         with open(self.output_file, 'w', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow(headers)
-
-    def _get_state_info(self, box_id: int) -> Dict:
-        """Get position and dimensions of a box."""
-        position, orientation = p.getBasePositionAndOrientation(box_id)
-        dimensions = self.env.boxes[box_id]
-        return {
-            'position': position,
-            'dimensions': dimensions
-        }
         
     def sample_random_action(self) -> Tuple[float, float]:
         """
@@ -95,12 +93,12 @@ class Sampler:
         z = self.initial_box_position[2] + z_offset
         
         # Round to resolution
-        x = self.truncate_to_3_decimals(round(x / self.resolution) * self.resolution)
-        z = self.truncate_to_3_decimals(round(z / self.resolution) * self.resolution)
+        x = self._to_3_decimals(round(x / self.resolution) * self.resolution)
+        z = self._to_3_decimals(round(z / self.resolution) * self.resolution)
         
         return x, z
     
-    def sample_perfect_action(self, placed_boxes: List[Tuple[int, List[float]]], current_box_dim: List[float]) -> Tuple[float, float]:
+    def sample_perfect_action(self, placed_boxes: List[int], current_box_dim: List[float]) -> Tuple[float, float]:
         """
         Generate a perfect stacking action based on previous box positions.
         
@@ -115,9 +113,10 @@ class Sampler:
             return self.initial_box_position[0], self.initial_box_position[2]
         
         # Get the last placed box's position and dimensions
-        last_box_id, last_box_dim = placed_boxes[-1]
-        last_box_pos, _ = p.getBasePositionAndOrientation(last_box_id)
-        
+        last_box_id = placed_boxes[-1]
+        last_box_state = self._get_state_info(last_box_id)
+        last_box_pos = last_box_state["position"]
+        last_box_dim = last_box_state["dimensions"]
         # Perfect placement strategy: 
         # 1. Align x-coordinate with the previous box 
         # 2. Place z-coordinate slightly above the previous box
@@ -125,7 +124,7 @@ class Sampler:
         x = last_box_pos[0]
         z = last_box_pos[2] + last_box_dim[2]/2 + current_box_dim[2] + 0.05  # Small offset
         
-        return self.truncate_to_3_decimals(x), self.truncate_to_3_decimals(z)
+        return self._to_3_decimals(x), self._to_3_decimals(z)
     
     def setup_initial_box(self) -> Tuple[int, List[float]]:
         """Set up the initial fixed position box."""
@@ -138,33 +137,68 @@ class Sampler:
         self.env.step_simulation(100)  # Let physics settle
         return box_id, box_dim
     
-    def truncate_to_3_decimals(self, num):
-        return math.trunc(num * 1000) / 1000
-
-    def _record_episode_step(self, initial_box_dim: List[float], 
-                           current_box_dim: List[float],
-                           placed_boxes: List[Tuple[int, List[float]]],
+    def _to_3_decimals(self, num):
+        if isinstance(num, (int, float)):
+            return math.trunc(num * 1000) / 1000
+        elif isinstance(num, list):
+            return [math.trunc(x * 1000) / 1000 for x in num]
+        else:
+            raise TypeError("Input must be an int, float, or list of numbers")
+    
+    def add_noise(self, state):
+        pos = state["position"]
+        dim = state["dimensions"]
+        noise_std=[0.005, 0.005, 0.005]
+        noisy_pos = [
+        pos[0] + np.random.normal(0, noise_std[0]),  # X-axis noise
+        pos[1],                
+        pos[2] + np.random.normal(0, noise_std[2])   # Z-axis noise
+        ]
+        noisy_dim = [
+        dim[0] + np.random.normal(0, noise_std[0]),  # Length noise
+        dim[1],                
+        dim[2] + np.random.normal(0, noise_std[2])   # Height noise
+        ]
+        return self._to_3_decimals(noisy_pos), self._to_3_decimals(noisy_dim)
+    
+    def _get_state_info(self, box_id: int) -> Dict:
+        """Get position and dimensions of a box."""
+        position, orientation = p.getBasePositionAndOrientation(box_id)
+        dimensions = self.env.boxes[box_id]
+        return {
+            'position': position,
+            'dimensions': dimensions
+        }
+    
+    def _record_episode_step(self, placed_boxes: List[int],
                            action: Tuple[float, float],
                            reward_info: Dict):
         """Record a single step to the CSV file."""
         row = []
         
         # Add initial box dimensions
-        initial_box_id, _ = placed_boxes[0]
-        initial_box_pos,_ = p.getBasePositionAndOrientation(initial_box_id)
-        row.extend([self.truncate_to_3_decimals(initial_box_pos[0]),self.truncate_to_3_decimals(initial_box_pos[2])])
+        initial_box_id = placed_boxes[0]
+        initial_box_state = self._get_state_info(initial_box_id)
+        initial_box_pos,initial_box_dim = self.add_noise(initial_box_state)
+        row.extend([initial_box_pos[0],initial_box_pos[2]])
         row.extend([initial_box_dim[0],initial_box_dim[2]])
         
         # Add current box dimensions
+        current_box_id = placed_boxes[-1]
+        current_box_state = self._get_state_info(current_box_id)
+        current_box_pos,current_box_dim = self.add_noise(current_box_state)
         row.extend([current_box_dim[0],current_box_dim[2]])
         
         # Add previously placed boxes' information
+        prev_placed_boxes = placed_boxes[:-1]
         for i in range(self.num_boxes - 2):
-            if i < len(placed_boxes) - 1:
-                box_id, box_dim = placed_boxes[i+1]
-                pos, _ = p.getBasePositionAndOrientation(box_id)
-                row.extend([self.truncate_to_3_decimals(pos[0]),self.truncate_to_3_decimals(pos[2])]) 
-                row.extend([self.truncate_to_3_decimals(box_dim[0]),self.truncate_to_3_decimals(box_dim[1])])
+            if i < len(prev_placed_boxes) - 1:
+                box_id = prev_placed_boxes[i+1]
+                
+                box_state = self._get_state_info(box_id)
+                box_pos,box_dim = self.add_noise(box_state)
+                row.extend([self._to_3_decimals(box_pos[0]),self._to_3_decimals(box_pos[2])]) 
+                row.extend([self._to_3_decimals(box_dim[0]),self._to_3_decimals(box_dim[2])])
             else:
                 # Padding for boxes not yet placed
                 row.extend([-1.0,-1.0,0.0,0.0])  # 2 for position, 2 for dimensions
@@ -191,7 +225,7 @@ class Sampler:
             # Reset environment and set up initial box
             placed_boxes = []
             initial_box_id, initial_box_dim = self.setup_initial_box()
-            placed_boxes.append((initial_box_id, initial_box_dim))
+            placed_boxes.append(initial_box_id)
             
             # Stack remaining boxes
             for _ in range(self.num_boxes - 1):
@@ -222,13 +256,12 @@ class Sampler:
                     
                     # Get reward and record sample
                     reward_info = self.env.get_total_reward()
-                    placed_boxes.append((current_box_id, current_box_dim))
+                    placed_boxes.append(current_box_id)
                     
                     # Record sample
+                    
                     self._record_episode_step(
-                        initial_box_dim=initial_box_dim,
-                        current_box_dim=current_box_dim,
-                        placed_boxes=placed_boxes[:-1],  # Exclude current box
+                        placed_boxes=placed_boxes, 
                         action=(action_x, action_z),
                         reward_info=reward_info
                     )
@@ -237,10 +270,9 @@ class Sampler:
                 self.env.robot_go_home()
             
             # Clear all boxes except the initial one for next episode
-            for box_id, _ in placed_boxes:
-                p.removeBody(box_id)
-                self.env.boxes = {}
-                
+            for box_id in placed_boxes:
+                p.removeBody(box_id)  
+            self.env.boxes.clear()   
             print(f"Completed episode {episode + 1}/{self.num_episodes}")
                 
     def close(self):
@@ -252,15 +284,16 @@ class Sampler:
             
 def main():
     # Initialize environment and sampler
-    env = BinStackEnviornment(gui=True)  # Set gui=False for faster sampling
+    env = BinStackEnvironment(gui=True)  # Set gui=False for faster sampling
     sampler = Sampler(
         env,
         num_boxes=3,  # Total number of boxes to stack (including initial box)
         width=1.0,
-        resolution=0.1,
+        resolution=0.01,
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
         num_episodes=10,
-        perfect_ratio=1.
+        perfect_ratio=0.,
+        random_initial = False
     )
 
     # Generate samples

@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import pybullet as p
-from env import BinStackEnviornment
+from env import BinStackEnvironment
 from RLmodel import DQN
 import math
 
@@ -22,7 +22,8 @@ class PolicyActionSelector:
         self.policy_net = DQN(state_dim, n_actions).to(self.device)
         
         # Load the trained model
-        self.policy_net.load_state_dict(torch.load(model_path))
+        model = torch.load('target_net.pt', map_location=torch.device('cpu'))
+        self.policy_net.load_state_dict(model)
         self.policy_net.eval()  # Set to evaluation mode
         
         self.state_dim = state_dim
@@ -132,7 +133,7 @@ def apply_policy_in_simulation(env, policy_selector, initial_box_position, num_b
     Apply the trained policy to stack boxes in the simulation.
     
     Args:
-        env (BinStackEnviornment): Simulation environment
+        env (BinStackEnvironment): Simulation environment
         policy_selector (PolicyActionSelector): Trained policy selector
         initial_box_position (list): Initial position of the first box
         num_boxes (int): Total number of boxes to stack
@@ -185,7 +186,7 @@ def apply_policy_in_simulation(env, policy_selector, initial_box_position, num_b
 # Example usage
 def main():
     # Initialize environment
-    env = BinStackEnviornment(gui=True)
+    env = BinStackEnvironment(gui=True)
     
     # Initialize policy selector
     policy_selector = PolicyActionSelector(
