@@ -91,8 +91,9 @@ memory = ReplayMemory(10000)
 
 def process_data():
 
+    # df = pd.read_csv("stacking_samples_mixed_p1.0.csv")
     df = pd.read_csv("stacking_samples_mixed_10000_p0.2.csv")
-    df = df[:20]
+    # df = df[:20]
 
     state_headers = ["box_0_x","box_0_z","box_0_l","box_0_h","box_c_l","box_c_h","box_1_x","box_1_z","box_1_l","box_1_h"]
     action_headers = ["a_x","a_z"]

@@ -25,7 +25,7 @@ model = DQN(10,11**2)
 model.load_state_dict(torch.load("model.pt", weights_only=True))
 model.eval()
 
-df = pd.read_csv("stacking_samples_mixed_10_p1.0.csv")
+df = pd.read_csv("stacking_samples_mixed_p1.0.csv")
 opt_actions = torch.tensor(df[["a_x","a_z"]].values, dtype=torch.float32)
 state_headers = ["box_0_x","box_0_z","box_0_l","box_0_h","box_c_l","box_c_h","box_1_x","box_1_z","box_1_l","box_1_h"]
 
