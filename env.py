@@ -56,7 +56,7 @@ class StackingEfficiencyCalculator:
             total_volume += volume
         return total_volume
 
-class BinStackEnviornment:
+class BinStackEnvironment:
     def __init__(self, gui=True):
         
         # 0 load environment
@@ -280,19 +280,6 @@ class BinStackEnviornment:
         self.robot_go_home()
         
         return True if self.grasp_constraint is not None else False
-    
-
-    def add_noise(self,box_id):
-        true_position, _ = p.getBasePositionAndOrientation(box_id)
-        true_position = list(true_position)
-        noise_std=[0.005, 0.005, 0.005]
-        noisy_position = [
-        true_position[0] + np.random.normal(0, noise_std[0]),  # X-axis noise
-        true_position[1] + np.random.normal(0, noise_std[1]),  # Y-axis noise
-        true_position[2] + np.random.normal(0, noise_std[2])   # Z-axis noise
-        ]
-    
-        return noisy_position
         
         
     def convert_pose_to_top_down():
