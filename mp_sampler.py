@@ -176,8 +176,8 @@ def main():
         width=1.0,
         resolution=0.01,
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
-        num_episodes=1000,  # Total episodes
-        perfect_ratio=0.2,
+        num_episodes=50000,  # Total episodes
+        perfect_ratio=0.,
         random_initial=True,
         num_processes=None  # Use all available CPU cores
     )
