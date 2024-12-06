@@ -175,7 +175,7 @@ class Sampler:
                            reward_info: Dict):
         """Record a single step to the CSV file."""
         row = []
-        
+        print("Placed boxes:", placed_boxes)
         # Add initial box dimensions
         initial_box_id = placed_boxes[0]
         initial_box_state = self._get_state_info(initial_box_id)
@@ -194,7 +194,7 @@ class Sampler:
         for i in range(self.num_boxes - 2):
             if i < len(prev_placed_boxes) - 1:
                 box_id = prev_placed_boxes[i+1]
-                
+                print("Previous placed boxes:", prev_placed_boxes)
                 box_state = self._get_state_info(box_id)
                 box_pos,box_dim = self.add_noise(box_state)
                 row.extend([self._to_3_decimals(box_pos[0]),self._to_3_decimals(box_pos[2])]) 
@@ -291,8 +291,8 @@ def main():
         width=1.0,
         resolution=0.01,
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
-        num_episodes=10,
-        perfect_ratio=0.4,
+        num_episodes=1,
+        perfect_ratio=0.7,
         random_initial = True
     )
     sampler._initialize_csv()
