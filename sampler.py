@@ -41,8 +41,8 @@ class Sampler:
         num_perfect_episodes = int(num_episodes * perfect_ratio)
         self.num_random_episodes = num_episodes - num_perfect_episodes
         
-        # Initialize CSV file with headers
-        self._initialize_csv()
+        # # Initialize CSV file with headers
+        # self._initialize_csv()
     
     def _initialize_csv(self):
         """Initialize CSV file with appropriate headers based on number of boxes."""
@@ -121,7 +121,7 @@ class Sampler:
         # 1. Align x-coordinate with the previous box 
         # 2. Place z-coordinate slightly above the previous box
         # NOTE: the action coordinate is the tip of the robotic arm, not the center of the box
-        x = last_box_pos[0]
+        x = last_box_pos[0] 
         z = last_box_pos[2] + last_box_dim[2]/2 + current_box_dim[2] + 0.05  # Small offset
         
         return self._to_3_decimals(x), self._to_3_decimals(z)
@@ -148,7 +148,7 @@ class Sampler:
     def add_noise(self, state):
         pos = state["position"]
         dim = state["dimensions"]
-        noise_std=[0.005, 0.005, 0.005]
+        noise_std=[0.02, 0.02, 0.02]
         noisy_pos = [
         pos[0] + np.random.normal(0, noise_std[0]),  # X-axis noise
         pos[1],                
@@ -284,7 +284,7 @@ class Sampler:
             
 def main():
     # Initialize environment and sampler
-    env = BinStackEnvironment(gui=True)  # Set gui=False for faster sampling
+    env = BinStackEnvironment(gui=False)  # Set gui=False for faster sampling
     sampler = Sampler(
         env,
         num_boxes=3,  # Total number of boxes to stack (including initial box)
@@ -292,10 +292,10 @@ def main():
         resolution=0.01,
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
         num_episodes=10,
-        perfect_ratio=0.,
-        random_initial = False
+        perfect_ratio=0.4,
+        random_initial = True
     )
-
+    sampler._initialize_csv()
     # Generate samples
     sampler.sample_and_record()
 
