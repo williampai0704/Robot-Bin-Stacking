@@ -130,8 +130,8 @@ class BinStackEnvironment:
         length_ = [0.1, 0.2]
         height_ = [0.1, 0.2]
         mass = 1.        # 100g mass
-        length = self.truncate_to_3_decimals(np.random.uniform(length_[0], length_[1])) # truncate to 3 decimals
-        height = self.truncate_to_3_decimals(np.random.uniform(height_[0], length_[1]))
+        length = self._to_3_decimals(np.random.uniform(length_[0], length_[1])) # truncate to 3 decimals
+        height = self._to_3_decimals(np.random.uniform(height_[0], length_[1]))
         box_dimensions = [length,width,height]
         
         # Create collision and visual shapes with the random dimensions
@@ -419,7 +419,7 @@ class BinStackEnvironment:
         """
         # Get stacking efficiency
         efficiency = self.calculate_stacking_efficiency() * self.stack_efficiency_scale
-        efficiency = self.truncate_to_3_decimals(efficiency)
+        efficiency = self._to_3_decimals(efficiency)
         # # Get collision information
         # collision_info = self.detect_collisions()
         
@@ -438,7 +438,7 @@ class BinStackEnvironment:
         # collision_reward = (1.0 - collision_penalty) * self.collision_weight
         
         # Calculate total reward
-        total_reward = efficiency_reward + collision_reward + stack_reward
+        total_reward = self._to_3_decimals(efficiency_reward + collision_reward + stack_reward)
         
         return {
             'total_reward': total_reward,
@@ -451,5 +451,5 @@ class BinStackEnvironment:
         """Clean up resources."""
         p.disconnect()
         
-    def truncate_to_3_decimals(self,num):
+    def _to_3_decimals(self,num):
         return math.trunc(num * 1000) / 1000
