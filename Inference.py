@@ -24,7 +24,7 @@ class PolicyActionSelector:
         self.policy_net = DQN(state_dim, n_actions).to(self.device)
         
         # Load the trained model
-        model = torch.load('target_net.pt', map_location=torch.device('cpu'))
+        model = torch.load(model_path, map_location=torch.device('cpu'))
         self.policy_net.load_state_dict(model)
         self.policy_net.eval()  # Set to evaluation mode
         
