@@ -258,7 +258,7 @@ class BinStackEnvironment:
         Execute grasp sequence without gripper movements
         """
         grasp_position, _ = p.getBasePositionAndOrientation(box_id)
-        grasp_position = np.array(grasp_position) + np.array([0, 0, box_dimension[2]/2 + 0.001])
+        grasp_position = np.array(grasp_position) + np.array([0, 0, box_dimension[2]/2 + 0.01])
         end_effector_orientation = p.getQuaternionFromEuler([np.pi, 0, 0])  # Adjust as needed
         
         pre_grasp_position = grasp_position + np.array([0, 0, 0.2])
@@ -442,11 +442,9 @@ class BinStackEnvironment:
         
         return {
             'total_reward': total_reward,
-            'efficiency_reward': efficiency_reward,
-            'collision_reward': collision_reward,
             'efficiency_ratio': efficiency,
             'collision_penalty': collision_penalty,
-            'stack_penalty': stack_reward
+            'stack_penalty': stack_penalty
         }
         
     def close(self):
