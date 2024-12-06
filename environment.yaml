@@ -16,3 +16,4 @@ dependencies:
   - pyquaternion = 0.9.9
   - torch
   - ipdb
+  - mp
