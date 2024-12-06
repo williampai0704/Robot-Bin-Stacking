@@ -4,6 +4,7 @@ import csv
 from typing import List, Tuple, Dict
 import os
 import math
+
 from env import BinStackEnvironment
 
 class Sampler:
@@ -25,6 +26,7 @@ class Sampler:
         self.resolution = resolution
         self.num_episodes = num_episodes
         self.perfect_ratio = perfect_ratio
+        self.data_folder = "train_data"
         
         initial_sample_x = [0.3, 0.5]
         
@@ -35,7 +37,7 @@ class Sampler:
             self.initial_box_position = initial_box_position
         
         # self.output_file = 'stacking_samples_random.csv_'+ str(self.num_episodes)
-        self.output_file = f'noisy_init_fixed_{self.num_episodes}_p{perfect_ratio}.csv'
+        self.output_file = os.path.join(self.data_folder, f'train_{self.num_episodes}_p{perfect_ratio}.csv')
 
         # self.num_samples = int(width / resolution)
         num_perfect_episodes = int(num_episodes * perfect_ratio)
@@ -121,9 +123,20 @@ class Sampler:
         # 1. Align x-coordinate with the previous box 
         # 2. Place z-coordinate slightly above the previous box
         # NOTE: the action coordinate is the tip of the robotic arm, not the center of the box
-        x = last_box_pos[0] 
-        z = last_box_pos[2] + last_box_dim[2]/2 + current_box_dim[2] + 0.05  # Small offset
-        
+
+        # approach 1: fixed perfect action
+        # x = last_box_pos[0] 
+        # z = last_box_pos[2] + last_box_dim[2]/2 + current_box_dim[2] + 0.05  # Small offset
+
+        # approach 2: perfect action within certain range to expand training data domain
+        if last_box_dim[0] > current_box_dim[0]:
+            x_noise = (last_box_dim[0] - current_box_dim[0])/2
+            x = last_box_pos[0] + np.random.normal(-x_noise, x_noise)
+        else:
+            x = last_box_pos[0] 
+
+        z = last_box_pos[2] + last_box_dim[2]/2 + current_box_dim[2] + 0.05
+
         return self._to_3_decimals(x), self._to_3_decimals(z)
     
     def setup_initial_box(self) -> Tuple[int, List[float]]:
@@ -151,12 +164,12 @@ class Sampler:
         noise_std=[0.02, 0.02, 0.02]
         noisy_pos = [
         pos[0] + np.random.normal(0, noise_std[0]),  # X-axis noise
-        pos[1],                
+        pos[1],                                      # NO noise in Y-axis
         pos[2] + np.random.normal(0, noise_std[2])   # Z-axis noise
         ]
         noisy_dim = [
         dim[0] + np.random.normal(0, noise_std[0]),  # Length noise
-        dim[1],                
+        dim[1],                                      # NO noise in width
         dim[2] + np.random.normal(0, noise_std[2])   # Height noise
         ]
         return self._to_3_decimals(noisy_pos), self._to_3_decimals(noisy_dim)
@@ -284,7 +297,7 @@ class Sampler:
             
 def main():
     # Initialize environment and sampler
-    env = BinStackEnvironment(gui=False)  # Set gui=False for faster sampling
+    env = BinStackEnvironment(gui=True)  # Set gui=False for faster sampling
     sampler = Sampler(
         env,
         num_boxes=3,  # Total number of boxes to stack (including initial box)
@@ -292,7 +305,7 @@ def main():
         resolution=0.01,
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
         num_episodes=10,
-        perfect_ratio=0.4,
+        perfect_ratio=1.,
         random_initial = True
     )
     sampler._initialize_csv()
