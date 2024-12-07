@@ -185,7 +185,7 @@ def main():
         width=1.0,
         resolution=0.01,
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
-        num_episodes = 10000,
+        num_episodes = 5000,
         perfect_ratio=1.,
         random_initial=True,
         num_processes=None,  # Use all available CPU cores
