@@ -18,7 +18,8 @@ class ParallelSampler:
                  num_episodes: int, 
                  perfect_ratio: float, 
                  random_initial: bool,
-                 num_processes: int = None):
+                 num_processes: int,
+                 use_noise: bool):
         """
         Initialize the parallel sampler for robot arm stacking actions.
         
@@ -40,6 +41,12 @@ class ParallelSampler:
         self.perfect_ratio = perfect_ratio
         self.random_initial = random_initial
         self.data_folder = "train_data"
+        self.use_noise = use_noise
+        if self.use_noise:
+            self.s = "noised"
+        else:
+            self.s = "unnoised"
+            
         
         # Determine number of processes
         self.num_processes = num_processes or mp.cpu_count()
@@ -52,7 +59,7 @@ class ParallelSampler:
         ]
         
         # Output file naming
-        self.base_output_file =  os.path.join(self.data_folder, f'train_{self.num_episodes}_p{perfect_ratio}')
+        self.base_output_file =  os.path.join(self.data_folder, f'train_{self.num_episodes}_p{perfect_ratio}_{self.s}')
         
     def _worker_process(self, 
                         process_id: int, 
@@ -69,7 +76,7 @@ class ParallelSampler:
             lock: Lock for thread-safe file writing
         """
         # Create a separate environment for this process
-        env = BinStackEnvironment(gui=False)
+        env = BinStackEnvironment(gui=True)
         
         # Create a sampler for this specific process
         sampler = Sampler(
@@ -80,7 +87,8 @@ class ParallelSampler:
             initial_box_position=self.initial_box_position,
             num_episodes=episodes,
             perfect_ratio=self.perfect_ratio,
-            random_initial=self.random_initial
+            random_initial=self.random_initial,
+            use_noise = self.use_noise
         )
         
         # Create a unique output file for this process
@@ -176,10 +184,10 @@ def main():
         width=1.0,
         resolution=0.01,
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
-        num_episodes=5000,  # Total episodes
         perfect_ratio=1.,
         random_initial=True,
-        num_processes=None  # Use all available CPU cores
+        num_processes=None,  # Use all available CPU cores
+        use_noise = False 
     )
     
     # Generate samples in parallel

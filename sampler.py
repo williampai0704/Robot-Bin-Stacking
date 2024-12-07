@@ -10,7 +10,7 @@ from env import BinStackEnvironment
 class Sampler:
     def __init__(self, env, num_boxes: int, width: float,
                  resolution: float, initial_box_position: List[float],
-                 num_episodes: int, perfect_ratio: float, random_initial:bool):
+                 num_episodes: int, perfect_ratio: float, random_initial:bool, use_noise:bool):
         """
         Initialize the sampler for robot arm stacking actions.
         
@@ -27,8 +27,9 @@ class Sampler:
         self.num_episodes = num_episodes
         self.perfect_ratio = perfect_ratio
         self.data_folder = "train_data"
+        self.use_noise = use_noise
         
-        initial_sample_x = [0.3, 0.5]
+        initial_sample_x = [-0.5, 0.5]
         
         if random_initial:
             self.initial_box_position = [self._to_3_decimals(np.random.uniform(initial_sample_x[0], initial_sample_x[1])),
@@ -91,8 +92,8 @@ class Sampler:
         z_offset = np.random.uniform(0, self.width)  # Only positive z offsets
         
         # Calculate absolute positions
-        x = self.initial_box_position[0] + x_offset
-        z = self.initial_box_position[2] + z_offset
+        x = x_offset
+        z = z_offset
         
         # Round to resolution
         x = self._to_3_decimals(round(x / self.resolution) * self.resolution)
@@ -150,29 +151,34 @@ class Sampler:
         self.env.step_simulation(100)  # Let physics settle
         return box_id, box_dim
     
-    def _to_3_decimals(self, num):
+    def _to_3_decimals(self,num):
         if isinstance(num, (int, float)):
             return math.trunc(num * 1000) / 1000
         elif isinstance(num, list):
             return [math.trunc(x * 1000) / 1000 for x in num]
+        elif isinstance(num, tuple):
+            return tuple(math.trunc(x * 1000) / 1000 for x in num)
         else:
-            raise TypeError("Input must be an int, float, or list of numbers")
+            raise TypeError("Input must be an int, float, or list of numbers") 
     
     def add_noise(self, state):
         pos = state["position"]
         dim = state["dimensions"]
-        noise_std=[0.02, 0.02, 0.02]
-        noisy_pos = [
-        pos[0] + np.random.normal(0, noise_std[0]),  # X-axis noise
-        pos[1],                                      # NO noise in Y-axis
-        pos[2] + np.random.normal(0, noise_std[2])   # Z-axis noise
-        ]
-        noisy_dim = [
-        dim[0] + np.random.normal(0, noise_std[0]),  # Length noise
-        dim[1],                                      # NO noise in width
-        dim[2] + np.random.normal(0, noise_std[2])   # Height noise
-        ]
-        return self._to_3_decimals(noisy_pos), self._to_3_decimals(noisy_dim)
+        if self.use_noise:
+            noise_std=[0.005, 0.005, 0.005]
+            noisy_pos = [
+            pos[0] + np.random.normal(0, noise_std[0]),  # X-axis noise
+            pos[1],                                      # NO noise in Y-axis
+            pos[2] + np.random.normal(0, noise_std[2])   # Z-axis noise
+            ]
+            noisy_dim = [
+            dim[0] + np.random.normal(0, noise_std[0]),  # Length noise
+            dim[1],                                      # NO noise in width
+            dim[2] + np.random.normal(0, noise_std[2])   # Height noise
+            ]
+            return self._to_3_decimals(noisy_pos), self._to_3_decimals(noisy_dim)
+        else:
+            return self._to_3_decimals(pos), self._to_3_decimals(dim)
     
     def _get_state_info(self, box_id: int) -> Dict:
         """Get position and dimensions of a box."""
@@ -214,7 +220,7 @@ class Sampler:
                 row.extend([self._to_3_decimals(box_dim[0]),self._to_3_decimals(box_dim[2])])
             else:
                 # Padding for boxes not yet placed
-                row.extend([-1.0,-1.0,0.0,0.0])  # 2 for position, 2 for dimensions
+                row.extend([-10.0,-10.0,0.0,0.0])  # 2 for position, 2 for dimensions
         row.extend([
             action[0], action[1],
             reward_info['total_reward'],
@@ -294,7 +300,6 @@ class Sampler:
             p.disconnect()
             
             
-            
 def main():
     # Initialize environment and sampler
     env = BinStackEnvironment(gui=True)  # Set gui=False for faster sampling
@@ -306,7 +311,8 @@ def main():
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
         num_episodes=10,
         perfect_ratio=1.,
-        random_initial = True
+        random_initial = True,
+        use_noise=False
     )
     sampler._initialize_csv()
     # Generate samples
