@@ -76,7 +76,7 @@ class ParallelSampler:
             lock: Lock for thread-safe file writing
         """
         # Create a separate environment for this process
-        env = BinStackEnvironment(gui=True)
+        env = BinStackEnvironment(gui=False)
         
         # Create a sampler for this specific process
         sampler = Sampler(
