@@ -50,6 +50,7 @@ class ParallelSampler:
         
         # Determine number of processes
         self.num_processes = num_processes or mp.cpu_count()
+        print(self.num_processes)
         
         # Calculate episodes per process
         self.episodes_per_process = [
@@ -184,11 +185,11 @@ def main():
         width=1.0,
         resolution=0.01,
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
-        num_episodes = 5000,
+        num_episodes = 10000,
         perfect_ratio=1.,
         random_initial=True,
         num_processes=None,  # Use all available CPU cores
-        use_noise = False 
+        use_noise = True 
     )
     
     # Generate samples in parallel
