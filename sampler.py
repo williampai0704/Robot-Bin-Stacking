@@ -28,14 +28,10 @@ class Sampler:
         self.perfect_ratio = perfect_ratio
         self.data_folder = "train_data"
         self.use_noise = use_noise
+        self.initial_sample_x = [-0.5, 0.5]
+        self.initial_box_position = initial_box_position
+        self.random_initial = random_initial
         
-        initial_sample_x = [-0.5, 0.5]
-        
-        if random_initial:
-            self.initial_box_position = [self._to_3_decimals(np.random.uniform(initial_sample_x[0], initial_sample_x[1])),
-                                         0.5,0.0]
-        else:    
-            self.initial_box_position = initial_box_position
         
         # self.output_file = 'stacking_samples_random.csv_'+ str(self.num_episodes)
         self.output_file = os.path.join(self.data_folder, f'train_{self.num_episodes}_p{perfect_ratio}.csv')
@@ -143,6 +139,9 @@ class Sampler:
     def setup_initial_box(self) -> Tuple[int, List[float]]:
         """Set up the initial fixed position box."""
         box_id, box_dim = self.env.load_box()
+        if self.random_initial:
+            self.initial_box_position = [self._to_3_decimals(np.random.uniform(self.initial_sample_x[0], self.initial_sample_x[1])),
+                                         0.5,0.0]
         p.resetBasePositionAndOrientation(
             box_id, 
             self.initial_box_position,
@@ -309,7 +308,7 @@ def main():
         width=1.0,
         resolution=0.01,
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
-        num_episodes=10,
+        num_episodes=3,
         perfect_ratio=1.,
         random_initial = True,
         use_noise=False
