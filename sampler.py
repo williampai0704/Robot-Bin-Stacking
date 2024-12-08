@@ -306,7 +306,7 @@ def main():
         env,
         num_boxes=3,  # Total number of boxes to stack (including initial box)
         width=1.0,
-        resolution=0.01,
+        resolution=0.05,
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
         num_episodes=3,
         perfect_ratio=1.,

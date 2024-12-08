@@ -7,7 +7,6 @@ from typing import List, Tuple, Dict
 import math
 import csv
 
-
 LOWx = - 0.5
 LOWz = 0.
 
@@ -142,7 +141,7 @@ class PolicyActionSelector:
         """
         # Initialize state vector
         state = []
-        print("Placed boxes:", placed_boxes)
+        # print("Placed boxes:", placed_boxes)
         # Initial box position and dimensions
         initial_box_id = placed_boxes[0]
         initial_box_state = self._get_state_info(initial_box_id)
@@ -161,7 +160,7 @@ class PolicyActionSelector:
         state.extend([current_box_dim[0], current_box_dim[2]])
         prev_placed_boxes = placed_boxes[:-1]
         
-        print("Previous placed boxes:", prev_placed_boxes)
+        # print("Previous placed boxes:", prev_placed_boxes)
         # Add previously placed boxes' information
         for i in range(self.num_boxes - 2):
             if i < len(prev_placed_boxes) - 1:
@@ -174,8 +173,8 @@ class PolicyActionSelector:
             else:
                 # Padding for boxes not yet placed
                 state.extend([-10.0, -10.0, 0.0, 0.0])  # 2 for position, 2 for dimensions
-        print("box_0_x,box_0_z,box_0_l,box_0_h,box_c_l,box_c_h,box_1_x,box_1_z,box_1_l,box_1_h")
-        print(state)
+        # print("box_0_x,box_0_z,box_0_l,box_0_h,box_c_l,box_c_h,box_1_x,box_1_z,box_1_l,box_1_h")
+        # print(state)
         return state
     
     def record_inference(self, state, action, reward_info):
@@ -186,8 +185,8 @@ class PolicyActionSelector:
             reward_info['collision_penalty'],
             reward_info['stack_penalty'],
         ])
-        print("box_0_x,box_0_z,box_0_l,box_0_h,box_c_l,box_c_h,box_1_x,box_1_z,box_1_l,box_1_h,a_x,a_z,reward,efficiency,collision_penalty,stack_penalty")
-        print(state)
+        # print("box_0_x,box_0_z,box_0_l,box_0_h,box_c_l,box_c_h,box_1_x,box_1_z,box_1_l,box_1_h,a_x,a_z,reward,efficiency,collision_penalty,stack_penalty")
+        # print(state)
         with open(self.output_file, 'a', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(state)
@@ -279,7 +278,7 @@ def apply_policy_in_simulation(policy_selector):
 # Example usage
 def main():
     # Initialize environment
-    env = BinStackEnvironment(gui=False)
+    env = BinStackEnvironment(gui=True)
     
     # Initialize policy selector
     policy_selector = PolicyActionSelector(
@@ -287,15 +286,13 @@ def main():
         model_path="model.pt",  # Path to your saved model
         state_dim=10,  # As defined in your training script
         n_actions=101**2,  # As defined in your training script
-        resolution=0.01,  # As defined in your training script
+        resolution=0.05,  # As defined in your training script
         num_boxes=3,
-        num_inference = 5
+        num_inference = 20
     )
     policy_selector._initialize_csv()
     # Apply policy in simulation
 
-    
-   
     apply_policy_in_simulation(policy_selector)
     
     # Clean up

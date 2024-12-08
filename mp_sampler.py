@@ -60,7 +60,7 @@ class ParallelSampler:
         ]
         
         # Output file naming
-        self.base_output_file =  os.path.join(self.data_folder, f'train_{self.num_episodes}_p{perfect_ratio}_{self.s}')
+        self.base_output_file =  os.path.join(self.data_folder, f'train_{self.num_episodes}_p{perfect_ratio}_{self.s}_r{self.resolution}')
         
     def _worker_process(self, 
                         process_id: int, 
@@ -183,13 +183,13 @@ def main():
     parallel_sampler = ParallelSampler(
         num_boxes=3,  # Total number of boxes to stack (including initial box)
         width=1.0,
-        resolution=0.01,
+        resolution=0.05,
         initial_box_position=[0.5, 0.5, 0.],  # Fixed position for first box
-        num_episodes = 10000,
-        perfect_ratio=1.,
+        num_episodes = 5000,
+        perfect_ratio=0.0,
         random_initial=True,
         num_processes=None,  # Use all available CPU cores
-        use_noise = True 
+        use_noise = False 
     )
     
     # Generate samples in parallel
