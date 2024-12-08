@@ -284,7 +284,7 @@ def main():
     # Initialize policy selector
     policy_selector = PolicyActionSelector(
         env = env,
-        model_path="model.pt",  # Path to your saved model
+        model_path="policy_net_10.pt",  # Path to your saved model
         state_dim=10,  # As defined in your training script
         n_actions=101**2,  # As defined in your training script
         resolution=0.01,  # As defined in your training script

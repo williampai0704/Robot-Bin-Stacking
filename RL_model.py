@@ -23,16 +23,22 @@ class DQN(nn.Module):
 
     def __init__(self, n_observations, n_actions):
         super(DQN, self).__init__()
+        self.dropout = nn.Dropout(0.2) 
         self.layer1 = nn.Linear(n_observations, 128)
-        self.layer2 = nn.Linear(128, 128)
-        self.layer3 = nn.Linear(128, n_actions)
+        self.layer2 = nn.Linear(128, 256)
+        self.layer3 = nn.Linear(256, 512)
+        self.layer4 = nn.Linear(512, 256)
+        self.layer5 = nn.Linear(256, n_actions)
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
     def forward(self, x):
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
-        return self.layer3(x)
+        x = self.dropout(x)
+        x = F.relu(self.layer3(x))
+        x = F.relu(self.layer4(x))
+        return self.layer5(x)
     
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
@@ -74,8 +80,8 @@ RESOLUTION = 0.01
 
 BATCH_SIZE = 128
 GAMMA = 1
-TAU = 0.05
-LR = 1e-4
+TAU = 0.02
+LR = 2e-5
 LOWx, HIx = -0.5, 0.5
 LOWz, HIz = 0., 1.
 
@@ -99,6 +105,8 @@ def process_data(datacsv):
     state_headers = ["box_0_x","box_0_z","box_0_l","box_0_h","box_c_l","box_c_h","box_1_x","box_1_z","box_1_l","box_1_h"]
     action_headers = ["a_x","a_z"]
     reward_headers = ["reward"]
+    stack_penalty_headers = ["stack_penalty"]
+    collision_headers = ["collision_penalty"]
 
     # Process the DataFrame two rows at a time
     for i in range(0, len(df), 2):  # Step by 2
@@ -108,7 +116,12 @@ def process_data(datacsv):
             action = df.loc[i, action_headers].values.tolist()
             action = np.clip(action, 0, 1)
             next_state = df.loc[i + 1, state_headers].values.tolist()
+
+            # notstacked = df.loc[i, stack_penalty_headers].values.tolist()
             reward = df.loc[i, reward_headers].values.tolist()
+            
+            collision = df.loc[i, collision_headers].values.tolist()
+            reward = - np.array(collision)*0.7*0.2 + np.array(reward) ## collision is -100*0.7 -> -70; add 70 to reward so it's effectively smt like -30
 
             memory.push(torch.tensor(state), torch.tensor(action), torch.tensor(next_state), torch.tensor(reward))
 
@@ -117,7 +130,11 @@ def process_data(datacsv):
             action = df.loc[i + 1, action_headers].values.tolist()
             # action = np.clip(action, 0, 1)
             # next_state fill with None 
+            # notstacked = df.loc[i + 1, stack_penalty_headers].values.tolist()
             reward = df.loc[i + 1, reward_headers].values.tolist()
+            # reward = np.array(notstacked)*0.2 + np.array(reward) ## increase stack penalty
+            collision = df.loc[i + 1, collision_headers].values.tolist()
+            reward = - np.array(collision)*0.7*0.2 + np.array(reward)
 
             memory.push(torch.tensor(state), torch.tensor(action), None, torch.tensor(reward))
 
@@ -235,16 +252,16 @@ def test(model):
 
 
 if __name__ == "__main__":
-    num_epochs = 50#000
+    num_epochs = 30 #000
 
-    trainfile = "train_data/train_10000_p0.0_unnoised.csv"
+    # trainfile = "train_data/train_10000_p0.0_noised.csv"
+    # memory = process_data(trainfile)
+
+    trainfile = "train_data/train_10000_p1.0_noised.csv"
     memory = process_data(trainfile)
 
-    trainfile = "train_data/train_5000_p1.0_unnoised.csv"
-    memory = process_data(trainfile)
-
-    trainfile = "train_data/train_5000_p1.0_unnoised_2.csv"
-    memory = process_data(trainfile)
+    # trainfile = "train_data/train_5000_p1.0_unnoised_2.csv"
+    # memory = process_data(trainfile)
     print(len(memory))
 
     losses = []
@@ -275,8 +292,8 @@ if __name__ == "__main__":
         if (i_epoch % 5) == 0:
             print(i_epoch)
 
-            torch.save(target_net.state_dict(), "target_net.pt")
-            torch.save(policy_net.state_dict(), "policy_net.pt")
+            torch.save(target_net.state_dict(), f"target_net_{i_epoch}.pt")
+            torch.save(policy_net.state_dict(), f"policy_net_{i_epoch}.pt")
             policy_net.eval()
             test(policy_net)
             target_net.eval()
