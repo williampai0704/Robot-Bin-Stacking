@@ -285,7 +285,7 @@ def main():
         env = env,
         model_path="model.pt",  # Path to your saved model
         state_dim=10,  # As defined in your training script
-        n_actions=101**2,  # As defined in your training script
+        n_actions=21**2,  # As defined in your training script
         resolution=0.05,  # As defined in your training script
         num_boxes=3,
         num_inference = 20

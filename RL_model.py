@@ -56,7 +56,6 @@ class DQN(nn.Module):
         x = F.relu(self.bn4(self.layer4(x)))
         return self.layer5(x)  # No activation for the output, as it's used directly in Q-learning
 
-    
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
@@ -89,7 +88,7 @@ class ReplayMemory(object):
     
 
 #action plane params
-RESOLUTION = 0.01
+RESOLUTION = 0.05
 
 # GAMMA is the discount factor 
 # TAU is the update rate of the target network
@@ -102,7 +101,7 @@ LR = 1e-4
 LOWx, HIx = -0.5, 0.5
 LOWz, HIz = 0., 1.
 
-n_actions = 101**2 ### must check but for now: 0, 0.1, ..., 0.9, 1
+n_actions = (int(1/RESOLUTION)+1)**2 ### must check but for now: 0, 0.1, ..., 0.9, 1
 state_dim = 10 # 
  
 policy_net = DQN(state_dim, n_actions).to(device)
@@ -147,9 +146,8 @@ def process_data(datacsv):
 
     return memory 
 
-
-
-
+def round_to_res(action):
+    return np.round(action / RESOLUTION) * RESOLUTION
 
 def coord2ind(action):
     # equal width x and z
@@ -181,8 +179,6 @@ def ind2coord(action_index):
     ax = (coord[0] / num) * width + LOWx
     az = (coord[1] / num) * width + LOWz
     return np.array([ax, az]).T # batch, 2
-
-
 
 
 def optimize_model(transitions):
@@ -243,7 +239,7 @@ def test(model):
     df = pd.read_csv("train_data/train_5000_p1.0_unnoised.csv")
     df = df[:100]
     opt_actions = np.array(df[["a_x","a_z"]].values)
-    opt_actions = np.round(opt_actions, 2) # 2 decimals, same as resolution 0.01
+    opt_actions = round_to_res(opt_actions) # 2 decimals, same as resolution 0.01
     # opt_actions = np.clip(opt_actions, 0, 1)
     state_headers = ["box_0_x","box_0_z","box_0_l","box_0_h","box_c_l","box_c_h","box_1_x","box_1_z","box_1_l","box_1_h"]
 
