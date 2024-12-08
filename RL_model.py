@@ -134,10 +134,21 @@ def coord2ind(action):
     num = int(width/RESOLUTION)
 
     rounded_action = np.round(action / RESOLUTION) * RESOLUTION
-    indx = (((rounded_action[:,0] - LOWx) / width) * num).int() # 0 to num
-    indz = (((rounded_action[:,1] - LOWz) / width) * num).int() # 0 to num
 
-    return np.ravel_multi_index([indx, indz], (num + 1 , num + 1)) 
+    indx = (((rounded_action[:,0] - LOWx) / width) * num).int() # 0 to num
+    indx = np.clip(indx, 0, num)
+    indz = (((rounded_action[:,1] - LOWz) / width) * num).int() # 0 to num
+    indx = np.clip(indx, 0, num)
+
+    # return np.ravel_multi_index([indx, indz], (num + 1 , num + 1)) 
+    try:
+        return np.ravel_multi_index([indx, indz], (num + 1, num + 1))
+    except Exception as e:
+        print("Error occurred in np.ravel_multi_index!")
+        print("Inputs:")
+        print(f"indx: {indx}")
+        print(f"indz: {indz}")
+        ipdb.set_trace()
 
 def ind2coord(action_index):
     
@@ -223,61 +234,62 @@ def test(model):
     print(np.mean((act_coords-opt_actions)**2), np.mean(np.abs(act_coords-opt_actions)))
 
 
-num_epochs = 10#000
+if __name__ == "__main__":
+    num_epochs = 50#000
 
-trainfile = "train_data/train_10000_p0.0_unnoised.csv"
-memory = process_data(trainfile)
-print(len(memory))
+    trainfile = "train_data/train_10000_p0.0_unnoised.csv"
+    memory = process_data(trainfile)
 
-trainfile = "train_data/train_5000_p1.0_unnoised.csv"
-memory = process_data(trainfile)
-print(len(memory))
+    trainfile = "train_data/train_5000_p1.0_unnoised.csv"
+    memory = process_data(trainfile)
 
-ipdb.set_trace()
-losses = []
-for i_epoch in trange(num_epochs, desc="Training Epochs"):
-    batches = memory.shuffle_and_sample(BATCH_SIZE)
-    # epoch_loss = 0
-    for ii, batch in enumerate(batches):
-        # print(batch)
+    trainfile = "train_data/train_5000_p1.0_unnoised_2.csv"
+    memory = process_data(trainfile)
+    print(len(memory))
 
-        loss = optimize_model(batch)
-        
-        # epoch_loss += loss
-        # Soft update of the target network's weights
-        # θ′ ← τ θ + (1 −τ )θ′
-        target_net_state_dict = target_net.state_dict()
-        policy_net_state_dict = policy_net.state_dict()
-        for key in policy_net_state_dict:
-            target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
-        target_net.load_state_dict(target_net_state_dict)
+    losses = []
+    for i_epoch in trange(num_epochs, desc="Training Epochs"):
+        batches = memory.shuffle_and_sample(BATCH_SIZE)
+        # epoch_loss = 0
+        for ii, batch in enumerate(batches):
+            # print(batch)
 
-        # if (ii % int(len(batches)/ 5)) == 0:
-        #     policy_net.eval()
-        #     test(policy_net)
-        #     target_net.eval()
-        #     test(target_net)
-    # losses.append(epoch_loss / len(batches))
-    # print(losses[-1])
-    if (i_epoch % 5) == 0:
-        print(i_epoch)
-        # if i_epoch == 0:
-        #     torch.save(target_net.state_dict(), "target_net.pt")
-        #     torch.save(policy_net.state_dict(), "policy_net.pt")
-        #     break
-        policy_net.eval()
-        test(policy_net)
-        target_net.eval()
-        test(target_net)
+            loss = optimize_model(batch)
+            
+            # epoch_loss += loss
+            # Soft update of the target network's weights
+            # θ′ ← τ θ + (1 −τ )θ′
+            target_net_state_dict = target_net.state_dict()
+            policy_net_state_dict = policy_net.state_dict()
+            for key in policy_net_state_dict:
+                target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+            target_net.load_state_dict(target_net_state_dict)
+
+            # if (ii % int(len(batches)/ 5)) == 0:
+            #     policy_net.eval()
+            #     test(policy_net)
+            #     target_net.eval()
+            #     test(target_net)
+        # losses.append(epoch_loss / len(batches))
+        # print(losses[-1])
+        if (i_epoch % 5) == 0:
+            print(i_epoch)
+
+            torch.save(target_net.state_dict(), "target_net.pt")
+            torch.save(policy_net.state_dict(), "policy_net.pt")
+            policy_net.eval()
+            test(policy_net)
+            target_net.eval()
+            test(target_net)
 
 
-print('Complete')
-torch.save(target_net.state_dict(), "model.pt")
+    print('Complete')
+    torch.save(target_net.state_dict(), "model.pt")
 
-# plt.figure()
-# plt.plot(np.arange(num_epochs), losses.cpu())
-# plt.title("loss vs epoch")
-# plt.savefig("loss.png")
+    # plt.figure()
+    # plt.plot(np.arange(num_epochs), losses.cpu())
+    # plt.title("loss vs epoch")
+    # plt.savefig("loss.png")
 
 
 

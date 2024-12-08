@@ -2,10 +2,14 @@ import torch
 import numpy as np
 import pybullet as p
 from env import BinStackEnvironment
-from RLmodel import DQN
+from RL_model import DQN
 from typing import List, Tuple, Dict
 import math
 import csv
+
+
+LOWx = - 0.5
+LOWz = 0.
 
 class PolicyActionSelector:
     def __init__(self, env, model_path, state_dim, n_actions, resolution, num_boxes, num_inference):
@@ -51,8 +55,8 @@ class PolicyActionSelector:
         width = high - low
         num = int(width/self.resolution)
         coord = np.unravel_index(action_index, (num+1, num+1))
-        ax = (coord[0] / num) * width + low
-        az = (coord[1] / num) * width + low
+        ax = (coord[0] / num) * width + LOWx
+        az = (coord[1] / num) * width + LOWz
         return np.array([ax, az])
     
     
@@ -169,7 +173,7 @@ class PolicyActionSelector:
                 state.extend([_to_3_decimals(box_dim[0]),_to_3_decimals(box_dim[1])])
             else:
                 # Padding for boxes not yet placed
-                state.extend([-1.0,-1.0,0.0,0.0])  # 2 for position, 2 for dimensions
+                state.extend([-10.0, -10.0, 0.0, 0.0])  # 2 for position, 2 for dimensions
         print("box_0_x,box_0_z,box_0_l,box_0_h,box_c_l,box_c_h,box_1_x,box_1_z,box_1_l,box_1_h")
         print(state)
         return state
@@ -211,9 +215,9 @@ def apply_policy_in_simulation(policy_selector):
     """
     num_boxes = policy_selector.num_boxes
     num_inference = policy_selector.num_inference
-    initial_sample_x = [0.3, 0.5]
+    initial_sample_x = [-0.5, 0.5]
     
-    for infernce in range(num_inference):
+    for inference in range(num_inference):
         # Reset environment and set up initial box
         placed_boxes = []
         initial_box_position = [_to_3_decimals(np.random.uniform(initial_sample_x[0], initial_sample_x[1])),
@@ -270,25 +274,26 @@ def apply_policy_in_simulation(policy_selector):
         for box_id in placed_boxes:
             p.removeBody(box_id)  
         policy_selector.env.boxes.clear() 
-        print(f"Completed inferdnce {num_inference + 1}/{num_inference}")  
+        print(f"Completed inference {num_inference + 1}/{num_inference}")  
 
 # Example usage
 def main():
     # Initialize environment
-    env = BinStackEnvironment(gui=True)
+    env = BinStackEnvironment(gui=False)
     
     # Initialize policy selector
     policy_selector = PolicyActionSelector(
         env = env,
         model_path="model.pt",  # Path to your saved model
         state_dim=10,  # As defined in your training script
-        n_actions=11**2,  # As defined in your training script
-        resolution=0.1,  # As defined in your training script
+        n_actions=101**2,  # As defined in your training script
+        resolution=0.01,  # As defined in your training script
         num_boxes=3,
         num_inference = 5
     )
     policy_selector._initialize_csv()
     # Apply policy in simulation
+
     
    
     apply_policy_in_simulation(policy_selector)
