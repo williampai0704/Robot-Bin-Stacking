@@ -15,7 +15,7 @@ import numpy as np
 from tqdm import trange
 
 device = torch.device(
-    "cuda" if torch.cuda.is_available() else
+    "cuda:1" if torch.cuda.is_available() else
     "cpu"
 )
 
@@ -94,7 +94,7 @@ RESOLUTION = 0.05
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
 
-BATCH_SIZE = 128
+BATCH_SIZE = 128*16
 GAMMA = 1
 TAU = 0.02
 LR = 2e-5
@@ -268,19 +268,15 @@ def test(model):
 
 
 if __name__ == "__main__":
-    num_epochs = 400 #000
+    num_epochs = 2000 
 
-    trainfile = "new_train_data/train_53607_pmixed_nmixed_r0.05.csv"
+    # trainfile = "new_train_data/train_53607_pmixed_nmixed_r0.05.csv"
+    # memory = process_data(trainfile)
+    
+    trainfile = "new_train_data/train_10000_p0.0_noised_r0.05.csv"
     memory = process_data(trainfile)
-    
-    # trainfile = "train_data/train_5000_p1.0_unnoised.csv"
-    # memory = process_data(trainfile)
-    
-    # trainfile = "train_data/train_5000_p1.0_unnoised_2.csv"
-    # memory = process_data(trainfile)
-    
-    # trainfile = "train_data/train_5000_p0.0_unnoised_r0.05.csv"
-    # memory = process_data(trainfile)
+    trainfile = "new_train_data/train_15000_p0.0_unnoised_r0.05.csv"
+    memory = process_data(trainfile)
     
     print(len(memory))
 
@@ -321,7 +317,7 @@ if __name__ == "__main__":
 
 
     print('Complete')
-    torch.save(target_net.state_dict(), f"model_r{RESOLUTION}.pt")
+    torch.save(target_net.state_dict(), f"model_r{RESOLUTION}_e{num_epochs}.pt")
 
     # plt.figure()
     # plt.plot(np.arange(num_epochs), losses.cpu())

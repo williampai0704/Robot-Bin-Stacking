@@ -240,7 +240,7 @@ if __name__ == "__main__":
 
         losses.append(epoch_loss / len(batches))
         print(losses[-1])
-        if (i_epoch % 5) == 0:
+        if (i_epoch % 10) == 0:
             print(i_epoch)
             torch.save(policy_net.state_dict(), f"policy_net_{i_epoch}.pt")
             policy_net.eval()

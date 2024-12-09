@@ -2,7 +2,8 @@ import torch
 import numpy as np
 import pybullet as p
 from env import BinStackEnvironment
-from RL_model import DQN
+from supervised import DQN
+# from RL_model import DQN
 from typing import List, Tuple, Dict
 import math
 import csv
@@ -37,7 +38,7 @@ class PolicyActionSelector:
         self.resolution = resolution
         self.num_boxes = num_boxes
         self.num_inference = num_inference
-        self.output_file = f'inference_{self.num_inference}.csv'
+        self.output_file = f'inference_{self.num_inference}_{model_path}.csv'
 
         # tracking metrics
         self.two_stack_success_count = 0
@@ -316,17 +317,17 @@ def apply_policy_in_simulation(policy_selector):
 # Example usage
 def main():
     # Initialize environment
-    env = BinStackEnvironment(gui=True)
+    env = BinStackEnvironment(gui=False)
     
     # Initialize policy selector
     policy_selector = PolicyActionSelector(
         env = env,
-        model_path="model_pmixed_nmixed_r0.05.pt",  # Path to your saved model
+        model_path="model.pt",  # Path to your saved model "model_pmixed_nmixed_r0.05.pt"
         state_dim=10,  # As defined in your training script
         n_actions=21**2,  # As defined in your training script
         resolution=0.05,  # As defined in your training script
         num_boxes=3,
-        num_inference = 10
+        num_inference = 100
     )
     policy_selector._initialize_csv()
     # Apply policy in simulation
