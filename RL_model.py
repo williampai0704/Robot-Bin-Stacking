@@ -19,68 +19,42 @@ device = torch.device(
     "cpu"
 )
 
-class DQN(nn.Module):
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
+class DQN(nn.Module):
     def __init__(self, n_observations, n_actions):
         super(DQN, self).__init__()
-        self.dropout = nn.Dropout(0.2) 
-        self.layer1 = nn.Linear(n_observations, 128)
-        self.layer2 = nn.Linear(128, 256)
-        self.layer3 = nn.Linear(256, 512)
-        self.layer4 = nn.Linear(512, 256)
+        
+        # Input layer
+        self.layer1 = nn.Linear(n_observations, 512)
+        self.bn1 = nn.BatchNorm1d(512)  # Batch normalization
+        
+        # Hidden layers
+        self.layer2 = nn.Linear(512, 512)
+        self.bn2 = nn.BatchNorm1d(512)
+        self.layer3 = nn.Linear(512, 256)
+        self.bn3 = nn.BatchNorm1d(256)
+        self.layer4 = nn.Linear(256, 256)
+        self.bn4 = nn.BatchNorm1d(256)
+        
+        # Output layer
         self.layer5 = nn.Linear(256, n_actions)
+        
+        # Dropout to prevent overfitting
+        self.dropout = nn.Dropout(p=0.3)
 
-    # Called with either one element to determine next action, or a batch
-    # during optimization. Returns tensor([[left0exp,right0exp]...]).
     def forward(self, x):
-        x = F.relu(self.layer1(x))
-        x = F.relu(self.layer2(x))
+        # Pass through the network with activations, batch normalization, and dropout
+        x = F.relu(self.bn1(self.layer1(x)))
         x = self.dropout(x)
-        x = F.relu(self.layer3(x))
-        x = F.relu(self.layer4(x))
-        return self.layer5(x)
-    
-
-class MaskedDQN(nn.Module):
-    def __init__(self, n_observations, n_actions, d_model=128, nhead=4, num_layers=2):
-        super(MaskedDQN, self).__init__()
-        
-        self.embedding = nn.Linear(n_observations, d_model)
-        self.transformer_encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, nhead=nhead, dim_feedforward=512, dropout=0.1
-        )
-        self.transformer_encoder = nn.TransformerEncoder(
-            self.transformer_encoder_layer, num_layers=num_layers
-        )
-        self.fc_out = nn.Linear(d_model, n_actions)
-
-    def forward(self, x, mask=None):
-        # Linear embedding of inputs
-        x = self.embedding(x)  # Shape: (batch_size, n_observations, d_model)
-        
-        # Add a dummy sequence dimension for the transformer: (batch_size, n_obs) -> (n_obs, batch_size, d_model)
-        x = x.transpose(0, 1)
-        
-        # Apply Transformer Encoder with masking
-        transformer_output = self.transformer_encoder(x, src_key_padding_mask=mask)
-        
-        # Remove sequence dimension and pass to final layer
-        x = transformer_output.transpose(0, 1)  # Shape: (batch_size, n_observations, d_model)
-        x = torch.mean(x, dim=1)  # Aggregate across observations
-        
-        return self.fc_out(x)
-
-    def create_mask(self, states):
-        """
-        Create a mask to ignore unplaced objects
-        """
-        mask = torch.zeros_like(states, dtype=torch.bool)
-        for i, state in enumerate(states):
-            if -10 in state:
-                mask[i, 6:] = True
-        return mask
-
-
+        x = F.relu(self.bn2(self.layer2(x)))
+        x = self.dropout(x)
+        x = F.relu(self.bn3(self.layer3(x)))
+        x = self.dropout(x)
+        x = F.relu(self.bn4(self.layer4(x)))
+        return self.layer5(x)  # No activation for the output, as it's used directly in Q-learning
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
@@ -136,7 +110,7 @@ target_net = DQN(state_dim, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-memory = ReplayMemory(50000)
+memory = ReplayMemory(60000)
 print(len(memory))
 
 def process_data(datacsv):
@@ -221,8 +195,6 @@ def ind2coord(action_index):
     return np.array([ax, az]).T # batch, 2
 
 
-
-
 def optimize_model(transitions):
     # if len(memory) < BATCH_SIZE:
     #     return
@@ -296,19 +268,20 @@ def test(model):
 
 
 if __name__ == "__main__":
-    num_epochs = 30 #000
+    num_epochs = 400 #000
 
-    # trainfile = "train_data/train_10000_p0.0_noised.csv"
+    trainfile = "new_train_data/train_53607_pmixed_nmixed_r0.05.csv"
+    memory = process_data(trainfile)
+    
+    # trainfile = "train_data/train_5000_p1.0_unnoised.csv"
     # memory = process_data(trainfile)
-
-    trainfile = "train_data/train_10000_p1.0_noised.csv"
-    memory = process_data(trainfile)
-
-    trainfile = "train_data/train_5000_p1.0_unnoised.csv"
-    memory = process_data(trainfile)
-
-    trainfile = "train_data/train_5000_p1.0_unnoised_2.csv"
-    memory = process_data(trainfile)
+    
+    # trainfile = "train_data/train_5000_p1.0_unnoised_2.csv"
+    # memory = process_data(trainfile)
+    
+    # trainfile = "train_data/train_5000_p0.0_unnoised_r0.05.csv"
+    # memory = process_data(trainfile)
+    
     print(len(memory))
 
     losses = []
@@ -339,8 +312,8 @@ if __name__ == "__main__":
         if (i_epoch % 5) == 0:
             print(i_epoch)
 
-            torch.save(target_net.state_dict(), f"target_net_{i_epoch}.pt")
-            torch.save(policy_net.state_dict(), f"policy_net_{i_epoch}.pt")
+            # torch.save(target_net.state_dict(), "target_net.pt")
+            # torch.save(policy_net.state_dict(), "policy_net.pt")
             policy_net.eval()
             test(policy_net)
             target_net.eval()
@@ -348,7 +321,7 @@ if __name__ == "__main__":
 
 
     print('Complete')
-    torch.save(target_net.state_dict(), "model.pt")
+    torch.save(target_net.state_dict(), f"model_r{RESOLUTION}.pt")
 
     # plt.figure()
     # plt.plot(np.arange(num_epochs), losses.cpu())

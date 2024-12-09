@@ -429,7 +429,7 @@ class BinStackEnvironment:
         # Calculate weighted reward components
         efficiency_reward = efficiency * self.efficiency_weight
         
-        collision_penalty = -100.0 if self.collision_history else 0
+        collision_penalty = -30.0 if self.collision_history else 0
         collision_reward = collision_penalty*self.collision_weight
         self.collision_history = []
         

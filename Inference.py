@@ -7,7 +7,6 @@ from typing import List, Tuple, Dict
 import math
 import csv
 
-
 LOWx = - 0.5
 LOWz = 0.
 
@@ -39,6 +38,11 @@ class PolicyActionSelector:
         self.num_boxes = num_boxes
         self.num_inference = num_inference
         self.output_file = f'inference_{self.num_inference}.csv'
+
+        # tracking metrics
+        self.two_stack_success_count = 0
+        self.three_stack_success_count = 0
+        self.three_stack_success_efficiencies = []
         
     def ind2coord(self, action_index, low=0., high=1.):
         """
@@ -142,7 +146,7 @@ class PolicyActionSelector:
         """
         # Initialize state vector
         state = []
-        print("Placed boxes:", placed_boxes)
+        # print("Placed boxes:", placed_boxes)
         # Initial box position and dimensions
         initial_box_id = placed_boxes[0]
         initial_box_state = self._get_state_info(initial_box_id)
@@ -161,7 +165,7 @@ class PolicyActionSelector:
         state.extend([current_box_dim[0], current_box_dim[2]])
         prev_placed_boxes = placed_boxes[:-1]
         
-        print("Previous placed boxes:", prev_placed_boxes)
+        # print("Previous placed boxes:", prev_placed_boxes)
         # Add previously placed boxes' information
         for i in range(self.num_boxes - 2):
             if i < len(prev_placed_boxes) - 1:
@@ -174,8 +178,8 @@ class PolicyActionSelector:
             else:
                 # Padding for boxes not yet placed
                 state.extend([-10.0, -10.0, 0.0, 0.0])  # 2 for position, 2 for dimensions
-        print("box_0_x,box_0_z,box_0_l,box_0_h,box_c_l,box_c_h,box_1_x,box_1_z,box_1_l,box_1_h")
-        print(state)
+        # print("box_0_x,box_0_z,box_0_l,box_0_h,box_c_l,box_c_h,box_1_x,box_1_z,box_1_l,box_1_h")
+        # print(state)
         return state
     
     def record_inference(self, state, action, reward_info):
@@ -186,11 +190,33 @@ class PolicyActionSelector:
             reward_info['collision_penalty'],
             reward_info['stack_penalty'],
         ])
-        print("box_0_x,box_0_z,box_0_l,box_0_h,box_c_l,box_c_h,box_1_x,box_1_z,box_1_l,box_1_h,a_x,a_z,reward,efficiency,collision_penalty,stack_penalty")
-        print(state)
+        # print("box_0_x,box_0_z,box_0_l,box_0_h,box_c_l,box_c_h,box_1_x,box_1_z,box_1_l,box_1_h,a_x,a_z,reward,efficiency,collision_penalty,stack_penalty")
+        # print(state)
         with open(self.output_file, 'a', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(state)
+
+    def get_performance_metrics(self):
+        """
+        Calculate and return performance metrics.
+        
+        Returns:
+            dict: Performance metrics including success rate and average stacking efficiency
+        """
+        two_stack_success_rate = self.two_stack_success_count / (self.num_inference*2) if self.num_inference > 0 else 0
+        three_stack_success_rate = self.three_stack_success_count / self.num_inference if self.num_inference > 0 else 0
+        avg_stacking_efficiency = (
+            sum(self.three_stack_success_efficiencies) / len(self.three_stack_success_efficiencies) 
+            if self.three_stack_success_efficiencies 
+            else 0
+        )
+        
+        return {
+            'two_stack_success_rate': two_stack_success_rate,
+            'three_stack_success_rate': three_stack_success_rate,
+            'average_stacking_efficiency': avg_stacking_efficiency,
+            'total_inference_runs': self.num_inference
+        }     
             
   
 def _to_3_decimals(num):
@@ -201,8 +227,8 @@ def _to_3_decimals(num):
         elif isinstance(num, tuple):
             return tuple(math.trunc(x * 1000) / 1000 for x in num)
         else:
-            raise TypeError("Input must be an int, float, or list of numbers")     
-        
+            raise TypeError("Input must be an int, float, or list of numbers")
+  
 def apply_policy_in_simulation(policy_selector):
     """
     Apply the trained policy to stack boxes in the simulation.
@@ -231,6 +257,9 @@ def apply_policy_in_simulation(policy_selector):
         )
         policy_selector.env.step_simulation(100)  # Let physics settle
         placed_boxes.append(initial_box_id)
+
+        # Track if this specific inference run is successful
+        three_stack_success = True
         
         # Stack remaining boxes
         for _ in range(num_boxes - 1):
@@ -261,12 +290,20 @@ def apply_policy_in_simulation(policy_selector):
                 reward_info = policy_selector.env.get_total_reward()
                 # Add current box to placed boxes
                 
-                
+                # Check for success: no collision or stack penalty
+                if reward_info['collision_penalty'] == 0 and reward_info['stack_penalty'] == 0:
+                    policy_selector.two_stack_success_count += 1
+                else:
+                    three_stack_success = False
+            
                 policy_selector.record_inference(
                             state=state, 
                             action=(action_x, action_z),
-                            reward_info=reward_info
+                            reward_info=reward_info,
                         )
+        if three_stack_success:
+            policy_selector.three_stack_success_count += 1
+                
             # Return to home position
             policy_selector.env.robot_go_home()
         
@@ -274,29 +311,35 @@ def apply_policy_in_simulation(policy_selector):
         for box_id in placed_boxes:
             p.removeBody(box_id)  
         policy_selector.env.boxes.clear() 
-        print(f"Completed inference {num_inference + 1}/{num_inference}")  
+        print(f"Completed inference {inference + 1}/{num_inference}")  
 
 # Example usage
 def main():
     # Initialize environment
-    env = BinStackEnvironment(gui=False)
+    env = BinStackEnvironment(gui=True)
     
     # Initialize policy selector
     policy_selector = PolicyActionSelector(
         env = env,
-        model_path="policy_net_45.pt",  # Path to your saved model
+        model_path="model_pmixed_nmixed_r0.05.pt",  # Path to your saved model
         state_dim=10,  # As defined in your training script
         n_actions=21**2,  # As defined in your training script
         resolution=0.05,  # As defined in your training script
         num_boxes=3,
-        num_inference = 5
+        num_inference = 10
     )
     policy_selector._initialize_csv()
     # Apply policy in simulation
 
-    
-   
     apply_policy_in_simulation(policy_selector)
+
+    # Print performance metrics
+    metrics = policy_selector.get_performance_metrics()
+    print("\nPerformance Metrics:")
+    print(f"Two Stack Success Rate: {metrics['two_stack_success_rate'] * 100:.2f}%")
+    print(f"Three Stack Success Rate: {metrics['three_stack_success_rate'] * 100:.2f}%")
+    print(f"Average Stacking Efficiency for successful three stack cases: {metrics['average_stacking_efficiency']:.4f}")
+    print(f"Total Num of Inferences: {metrics['total_inference_runs']}")
     
     # Clean up
     env.close()
