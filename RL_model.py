@@ -109,7 +109,7 @@ target_net = DQN(state_dim, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-memory = ReplayMemory(50000)
+memory = ReplayMemory(60000)
 print(len(memory))
 
 def process_data(datacsv):
@@ -256,14 +256,14 @@ def test(model):
 if __name__ == "__main__":
     num_epochs = 400 #000
 
-    trainfile = "train_data/train_10000_p0.0_unnoised.csv"
+    trainfile = "new_train_data/train_53607_pmixed_nmixed_r0.05.csv"
     memory = process_data(trainfile)
     
-    trainfile = "train_data/train_5000_p1.0_unnoised.csv"
-    memory = process_data(trainfile)
+    # trainfile = "train_data/train_5000_p1.0_unnoised.csv"
+    # memory = process_data(trainfile)
     
-    trainfile = "train_data/train_5000_p1.0_unnoised_2.csv"
-    memory = process_data(trainfile)
+    # trainfile = "train_data/train_5000_p1.0_unnoised_2.csv"
+    # memory = process_data(trainfile)
     
     # trainfile = "train_data/train_5000_p0.0_unnoised_r0.05.csv"
     # memory = process_data(trainfile)
