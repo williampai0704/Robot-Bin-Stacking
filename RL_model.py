@@ -40,6 +40,48 @@ class DQN(nn.Module):
         x = F.relu(self.layer4(x))
         return self.layer5(x)
     
+
+class MaskedDQN(nn.Module):
+    def __init__(self, n_observations, n_actions, d_model=128, nhead=4, num_layers=2):
+        super(MaskedDQN, self).__init__()
+        
+        self.embedding = nn.Linear(n_observations, d_model)
+        self.transformer_encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=nhead, dim_feedforward=512, dropout=0.1
+        )
+        self.transformer_encoder = nn.TransformerEncoder(
+            self.transformer_encoder_layer, num_layers=num_layers
+        )
+        self.fc_out = nn.Linear(d_model, n_actions)
+
+    def forward(self, x, mask=None):
+        # Linear embedding of inputs
+        x = self.embedding(x)  # Shape: (batch_size, n_observations, d_model)
+        
+        # Add a dummy sequence dimension for the transformer: (batch_size, n_obs) -> (n_obs, batch_size, d_model)
+        x = x.transpose(0, 1)
+        
+        # Apply Transformer Encoder with masking
+        transformer_output = self.transformer_encoder(x, src_key_padding_mask=mask)
+        
+        # Remove sequence dimension and pass to final layer
+        x = transformer_output.transpose(0, 1)  # Shape: (batch_size, n_observations, d_model)
+        x = torch.mean(x, dim=1)  # Aggregate across observations
+        
+        return self.fc_out(x)
+
+    def create_mask(self, states):
+        """
+        Create a mask to ignore unplaced objects
+        """
+        mask = torch.zeros_like(states, dtype=torch.bool)
+        for i, state in enumerate(states):
+            if -10 in state:
+                mask[i, 6:] = True
+        return mask
+
+
+
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
@@ -72,7 +114,7 @@ class ReplayMemory(object):
     
 
 #action plane params
-RESOLUTION = 0.01
+RESOLUTION = 0.05
 
 # GAMMA is the discount factor 
 # TAU is the update rate of the target network
@@ -85,7 +127,8 @@ LR = 2e-5
 LOWx, HIx = -0.5, 0.5
 LOWz, HIz = 0., 1.
 
-n_actions = 101**2 ### must check but for now: 0, 0.1, ..., 0.9, 1
+# n_actions = 101**2 ### must check but for now: 0, 0.1, ..., 0.9, 1
+n_actions = int(1 / RESOLUTION + 1)**2
 state_dim = 10 # 
  
 policy_net = DQN(state_dim, n_actions).to(device)
@@ -114,14 +157,14 @@ def process_data(datacsv):
             # Extract state, action, and next_state (2nd box placement, even rows)
             state = df.loc[i, state_headers].values.tolist()
             action = df.loc[i, action_headers].values.tolist()
-            action = np.clip(action, 0, 1)
+            # action = np.clip(action, 0, 1)
             next_state = df.loc[i + 1, state_headers].values.tolist()
 
             # notstacked = df.loc[i, stack_penalty_headers].values.tolist()
             reward = df.loc[i, reward_headers].values.tolist()
             
-            collision = df.loc[i, collision_headers].values.tolist()
-            reward = - np.array(collision)*0.7*0.2 + np.array(reward) ## collision is -100*0.7 -> -70; add 70 to reward so it's effectively smt like -30
+            # collision = df.loc[i, collision_headers].values.tolist()
+            # reward = - np.array(collision)*0.7*0.2 + np.array(reward) ## collision is -100*0.7 -> -70; add 70 to reward so it's effectively smt like -30
 
             memory.push(torch.tensor(state), torch.tensor(action), torch.tensor(next_state), torch.tensor(reward))
 
@@ -133,8 +176,8 @@ def process_data(datacsv):
             # notstacked = df.loc[i + 1, stack_penalty_headers].values.tolist()
             reward = df.loc[i + 1, reward_headers].values.tolist()
             # reward = np.array(notstacked)*0.2 + np.array(reward) ## increase stack penalty
-            collision = df.loc[i + 1, collision_headers].values.tolist()
-            reward = - np.array(collision)*0.7*0.2 + np.array(reward)
+            # collision = df.loc[i + 1, collision_headers].values.tolist()
+            # reward = - np.array(collision)*0.7*0.2 + np.array(reward)
 
             memory.push(torch.tensor(state), torch.tensor(action), None, torch.tensor(reward))
 
@@ -142,7 +185,8 @@ def process_data(datacsv):
     return memory 
 
 
-
+def round_to_res(action):
+    return np.round(action / RESOLUTION) * RESOLUTION
 
 
 def coord2ind(action):
@@ -155,7 +199,7 @@ def coord2ind(action):
     indx = (((rounded_action[:,0] - LOWx) / width) * num).int() # 0 to num
     indx = np.clip(indx, 0, num)
     indz = (((rounded_action[:,1] - LOWz) / width) * num).int() # 0 to num
-    indx = np.clip(indx, 0, num)
+    indz = np.clip(indx, 0, num)
 
     # return np.ravel_multi_index([indx, indz], (num + 1 , num + 1)) 
     try:
@@ -237,7 +281,7 @@ def test(model):
     df = pd.read_csv("train_data/train_5000_p1.0_unnoised.csv")
     df = df[:100]
     opt_actions = np.array(df[["a_x","a_z"]].values)
-    opt_actions = np.round(opt_actions, 2) # 2 decimals, same as resolution 0.01
+    opt_actions = round_to_res(opt_actions) 
     # opt_actions = np.clip(opt_actions, 0, 1)
     state_headers = ["box_0_x","box_0_z","box_0_l","box_0_h","box_c_l","box_c_h","box_1_x","box_1_z","box_1_l","box_1_h"]
 
@@ -260,8 +304,11 @@ if __name__ == "__main__":
     trainfile = "train_data/train_10000_p1.0_noised.csv"
     memory = process_data(trainfile)
 
-    # trainfile = "train_data/train_5000_p1.0_unnoised_2.csv"
-    # memory = process_data(trainfile)
+    trainfile = "train_data/train_5000_p1.0_unnoised.csv"
+    memory = process_data(trainfile)
+
+    trainfile = "train_data/train_5000_p1.0_unnoised_2.csv"
+    memory = process_data(trainfile)
     print(len(memory))
 
     losses = []

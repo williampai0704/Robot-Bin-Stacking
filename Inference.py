@@ -170,7 +170,7 @@ class PolicyActionSelector:
                 box_pos = box_state["position"]
                 box_dim = box_state["dimensions"]
                 state.extend([_to_3_decimals(box_pos[0]),_to_3_decimals(box_pos[2])]) 
-                state.extend([_to_3_decimals(box_dim[0]),_to_3_decimals(box_dim[1])])
+                state.extend([_to_3_decimals(box_dim[0]),_to_3_decimals(box_dim[2])])
             else:
                 # Padding for boxes not yet placed
                 state.extend([-10.0, -10.0, 0.0, 0.0])  # 2 for position, 2 for dimensions
@@ -284,10 +284,10 @@ def main():
     # Initialize policy selector
     policy_selector = PolicyActionSelector(
         env = env,
-        model_path="policy_net_10.pt",  # Path to your saved model
+        model_path="policy_net_45.pt",  # Path to your saved model
         state_dim=10,  # As defined in your training script
-        n_actions=101**2,  # As defined in your training script
-        resolution=0.01,  # As defined in your training script
+        n_actions=21**2,  # As defined in your training script
+        resolution=0.05,  # As defined in your training script
         num_boxes=3,
         num_inference = 5
     )
