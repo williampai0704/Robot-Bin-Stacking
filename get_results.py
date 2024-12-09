@@ -40,4 +40,4 @@ def read_csv(infile):
     print(f"Corresponding efficiencies: {effs[idx][:10]}")
 
 
-read_csv("inference_100_model.pt.csv")
+read_csv("inference_101.csv")
