@@ -15,31 +15,47 @@ import numpy as np
 from tqdm import trange
 
 device = torch.device(
-    "cuda" if torch.cuda.is_available() else
+    "cuda:1" if torch.cuda.is_available() else
     "cpu"
 )
 
-class DQN(nn.Module):
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
+class DQN(nn.Module):
     def __init__(self, n_observations, n_actions):
         super(DQN, self).__init__()
-        self.dropout = nn.Dropout(0.2) 
-        self.layer1 = nn.Linear(n_observations, 128)
-        self.layer2 = nn.Linear(128, 256)
-        self.layer3 = nn.Linear(256, 512)
-        self.layer4 = nn.Linear(512, 256)
+        
+        # Input layer
+        self.layer1 = nn.Linear(n_observations, 512)
+        self.bn1 = nn.BatchNorm1d(512)  # Batch normalization
+        
+        # Hidden layers
+        self.layer2 = nn.Linear(512, 512)
+        self.bn2 = nn.BatchNorm1d(512)
+        self.layer3 = nn.Linear(512, 256)
+        self.bn3 = nn.BatchNorm1d(256)
+        self.layer4 = nn.Linear(256, 256)
+        self.bn4 = nn.BatchNorm1d(256)
+        
+        # Output layer
         self.layer5 = nn.Linear(256, n_actions)
+        
+        # Dropout to prevent overfitting
+        self.dropout = nn.Dropout(p=0.3)
 
-    # Called with either one element to determine next action, or a batch
-    # during optimization. Returns tensor([[left0exp,right0exp]...]).
     def forward(self, x):
-        x = F.relu(self.layer1(x))
-        x = F.relu(self.layer2(x))
+        # Pass through the network with activations, batch normalization, and dropout
+        x = F.relu(self.bn1(self.layer1(x)))
         x = self.dropout(x)
-        x = F.relu(self.layer3(x))
-        x = F.relu(self.layer4(x))
-        return self.layer5(x)
-    
+        x = F.relu(self.bn2(self.layer2(x)))
+        x = self.dropout(x)
+        x = F.relu(self.bn3(self.layer3(x)))
+        x = self.dropout(x)
+        x = F.relu(self.bn4(self.layer4(x)))
+        return self.layer5(x)  # No activation for the output, as it's used directly in Q-learning
+
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
@@ -72,20 +88,21 @@ class ReplayMemory(object):
     
 
 #action plane params
-RESOLUTION = 0.01
+RESOLUTION = 0.05
 
 # GAMMA is the discount factor 
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
 
-BATCH_SIZE = 128
+BATCH_SIZE = 128*16
 GAMMA = 1
 TAU = 0.02
 LR = 2e-5
 LOWx, HIx = -0.5, 0.5
 LOWz, HIz = 0., 1.
 
-n_actions = 101**2 ### must check but for now: 0, 0.1, ..., 0.9, 1
+# n_actions = 101**2 ### must check but for now: 0, 0.1, ..., 0.9, 1
+n_actions = int(1 / RESOLUTION + 1)**2
 state_dim = 10 # 
  
 policy_net = DQN(state_dim, n_actions).to(device)
@@ -93,7 +110,7 @@ target_net = DQN(state_dim, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-memory = ReplayMemory(50000)
+memory = ReplayMemory(60000)
 print(len(memory))
 
 def process_data(datacsv):
@@ -114,14 +131,14 @@ def process_data(datacsv):
             # Extract state, action, and next_state (2nd box placement, even rows)
             state = df.loc[i, state_headers].values.tolist()
             action = df.loc[i, action_headers].values.tolist()
-            action = np.clip(action, 0, 1)
+            # action = np.clip(action, 0, 1)
             next_state = df.loc[i + 1, state_headers].values.tolist()
 
             # notstacked = df.loc[i, stack_penalty_headers].values.tolist()
             reward = df.loc[i, reward_headers].values.tolist()
             
-            collision = df.loc[i, collision_headers].values.tolist()
-            reward = - np.array(collision)*0.7*0.2 + np.array(reward) ## collision is -100*0.7 -> -70; add 70 to reward so it's effectively smt like -30
+            # collision = df.loc[i, collision_headers].values.tolist()
+            # reward = - np.array(collision)*0.7*0.2 + np.array(reward) ## collision is -100*0.7 -> -70; add 70 to reward so it's effectively smt like -30
 
             memory.push(torch.tensor(state), torch.tensor(action), torch.tensor(next_state), torch.tensor(reward))
 
@@ -133,8 +150,8 @@ def process_data(datacsv):
             # notstacked = df.loc[i + 1, stack_penalty_headers].values.tolist()
             reward = df.loc[i + 1, reward_headers].values.tolist()
             # reward = np.array(notstacked)*0.2 + np.array(reward) ## increase stack penalty
-            collision = df.loc[i + 1, collision_headers].values.tolist()
-            reward = - np.array(collision)*0.7*0.2 + np.array(reward)
+            # collision = df.loc[i + 1, collision_headers].values.tolist()
+            # reward = - np.array(collision)*0.7*0.2 + np.array(reward)
 
             memory.push(torch.tensor(state), torch.tensor(action), None, torch.tensor(reward))
 
@@ -142,7 +159,8 @@ def process_data(datacsv):
     return memory 
 
 
-
+def round_to_res(action):
+    return np.round(action / RESOLUTION) * RESOLUTION
 
 
 def coord2ind(action):
@@ -155,7 +173,7 @@ def coord2ind(action):
     indx = (((rounded_action[:,0] - LOWx) / width) * num).int() # 0 to num
     indx = np.clip(indx, 0, num)
     indz = (((rounded_action[:,1] - LOWz) / width) * num).int() # 0 to num
-    indx = np.clip(indx, 0, num)
+    indz = np.clip(indx, 0, num)
 
     # return np.ravel_multi_index([indx, indz], (num + 1 , num + 1)) 
     try:
@@ -175,8 +193,6 @@ def ind2coord(action_index):
     ax = (coord[0] / num) * width + LOWx
     az = (coord[1] / num) * width + LOWz
     return np.array([ax, az]).T # batch, 2
-
-
 
 
 def optimize_model(transitions):
@@ -237,7 +253,7 @@ def test(model):
     df = pd.read_csv("train_data/train_5000_p1.0_unnoised.csv")
     df = df[:100]
     opt_actions = np.array(df[["a_x","a_z"]].values)
-    opt_actions = np.round(opt_actions, 2) # 2 decimals, same as resolution 0.01
+    opt_actions = round_to_res(opt_actions) 
     # opt_actions = np.clip(opt_actions, 0, 1)
     state_headers = ["box_0_x","box_0_z","box_0_l","box_0_h","box_c_l","box_c_h","box_1_x","box_1_z","box_1_l","box_1_h"]
 
@@ -252,16 +268,16 @@ def test(model):
 
 
 if __name__ == "__main__":
-    num_epochs = 30 #000
+    num_epochs = 2000 
 
-    # trainfile = "train_data/train_10000_p0.0_noised.csv"
+    # trainfile = "new_train_data/train_53607_pmixed_nmixed_r0.05.csv"
     # memory = process_data(trainfile)
-
-    trainfile = "train_data/train_10000_p1.0_noised.csv"
+    
+    trainfile = "new_train_data/train_10000_p0.0_noised_r0.05.csv"
     memory = process_data(trainfile)
-
-    # trainfile = "train_data/train_5000_p1.0_unnoised_2.csv"
-    # memory = process_data(trainfile)
+    trainfile = "new_train_data/train_15000_p0.0_unnoised_r0.05.csv"
+    memory = process_data(trainfile)
+    
     print(len(memory))
 
     losses = []
@@ -292,8 +308,8 @@ if __name__ == "__main__":
         if (i_epoch % 5) == 0:
             print(i_epoch)
 
-            torch.save(target_net.state_dict(), f"target_net_{i_epoch}.pt")
-            torch.save(policy_net.state_dict(), f"policy_net_{i_epoch}.pt")
+            # torch.save(target_net.state_dict(), "target_net.pt")
+            # torch.save(policy_net.state_dict(), "policy_net.pt")
             policy_net.eval()
             test(policy_net)
             target_net.eval()
@@ -301,7 +317,7 @@ if __name__ == "__main__":
 
 
     print('Complete')
-    torch.save(target_net.state_dict(), "model.pt")
+    torch.save(target_net.state_dict(), f"model_r{RESOLUTION}_e{num_epochs}.pt")
 
     # plt.figure()
     # plt.plot(np.arange(num_epochs), losses.cpu())

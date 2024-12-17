@@ -125,13 +125,19 @@ class BinStackEnvironment:
         for i in range(int(num_steps)*10):
             p.stepSimulation()
 
-    def load_box(self):
+    def load_box(self, length = 0, height = 0):
         width = 0.100  # 5cm fixed width
         length_ = [0.1, 0.2]
         height_ = [0.1, 0.2]
         mass = 1.        # 100g mass
-        length = self._to_3_decimals(np.random.uniform(length_[0], length_[1])) # truncate to 3 decimals
-        height = self._to_3_decimals(np.random.uniform(height_[0], length_[1]))
+        if length: 
+            length = self._to_3_decimals(length)
+        else: 
+            length = self._to_3_decimals(np.random.uniform(length_[0], length_[1])) # truncate to 3 decimals
+        if height:
+            height = self._to_3_decimals(height)
+        else:
+            height = self._to_3_decimals(np.random.uniform(height_[0], length_[1]))
         box_dimensions = [length,width,height]
         
         # Create collision and visual shapes with the random dimensions
@@ -199,7 +205,7 @@ class BinStackEnvironment:
                                                    endEffectorLinkIndex = self.robot_end_effector_link_index,
                                                    targetPosition = position, 
                                                    targetOrientation = orientation,
-                                                   maxNumIterations = 80)
+                                                   maxNumIterations = 100)
         self.move_joints(joint_state, acceleration=acceleration, speed=speed)
         
     
@@ -429,7 +435,7 @@ class BinStackEnvironment:
         # Calculate weighted reward components
         efficiency_reward = efficiency * self.efficiency_weight
         
-        collision_penalty = -100.0 if self.collision_history else 0
+        collision_penalty = -30.0 if self.collision_history else 0
         collision_reward = collision_penalty*self.collision_weight
         self.collision_history = []
         
